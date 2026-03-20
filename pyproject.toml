@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wevva-warnings"
+version = "0.1.0"
+description = "Lightweight Python library for official weather warnings"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+authors = [
+    { name = "Nick Ferguson", email = "nick.ferguson@ed.ac.uk" },
+]
+dependencies = [
+    "rich>=14.3.3",
+    "typer>=0.24.1",
+]
+keywords = ["weather", "warnings", "alerts", "cap", "meteorology"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Atmospheric Science",
+]
+
+[project.urls]
+Homepage = "https://github.com/njf0/wevva-warnings"
+
+[project.scripts]
+wevva-warnings = "wevva_warnings.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["wevva_warnings*"]
