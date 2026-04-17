@@ -17,11 +17,11 @@ from ..models import Alert
 if TYPE_CHECKING:
     from ..sources import WarningSource
 
-DEFAULT_TIMEOUT = 20.0
+DEFAULT_TIMEOUT = 180
 try:
     PACKAGE_VERSION = version('wevva-warnings')
 except PackageNotFoundError:
-    PACKAGE_VERSION = '0.1.0'
+    PACKAGE_VERSION = '0.2.1'
 DEFAULT_USER_AGENT = f'wevva-warnings/{PACKAGE_VERSION}'
 
 

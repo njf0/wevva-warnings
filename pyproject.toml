@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wevva-warnings"
-version = "0.2.0"
+version = "0.2.1"
 description = "Lightweight Python library for official weather warnings"
 readme = "README.md"
 license = { file = "LICENSE" }
