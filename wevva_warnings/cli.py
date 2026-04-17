@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 import logging
+from collections.abc import Callable
 from contextlib import contextmanager
 from typing import Iterator
 
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
+from rich.panel import Panel
+from rich.pretty import Pretty
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 from rich.text import Text
@@ -35,7 +37,7 @@ def point(
     lon: float = typer.Argument(..., help='Longitude in decimal degrees.'),
     country_code: str = typer.Argument(..., help='ISO country code used for source routing.'),
     lang: str | None = typer.Option(None, '--lang', help='Optional language tag used for source selection.'),
-    active_only: bool = typer.Option(False, '--active-only', help='Only return alerts that are active right now.'),
+    active_only: bool = typer.Option(False, '--active', '--active-only', help='Only return alerts that are active right now.'),
     debug: bool = typer.Option(False, '--debug', help='Show more progress information while fetching alerts.'),
 ) -> None:
     """Retrieve alerts for one point."""
@@ -58,13 +60,15 @@ def sources() -> None:
 @app.command()
 def source(
     source_id: str = typer.Argument(..., help='Built-in source identifier to query.'),
-    active_only: bool = typer.Option(False, '--active-only', help='Only return alerts that are active right now.'),
+    active_only: bool = typer.Option(False, '--active', '--active-only', help='Only return alerts that are active right now.'),
+    formatted: bool = typer.Option(False, '--formatted', help='Render alerts as a table instead of pretty-printed objects.'),
     debug: bool = typer.Option(False, '--debug', help='Show more progress information while fetching alerts.'),
 ) -> None:
     """Retrieve alerts from one source."""
     _render_source_query(
         source_id,
         active_only=active_only,
+        formatted=formatted,
         debug=debug,
     )
 
@@ -130,6 +134,7 @@ def _render_source_query(
     source_id: str,
     *,
     active_only: bool,
+    formatted: bool,
     debug: bool,
 ) -> None:
     """Run the source query flow and render the result.
@@ -140,6 +145,9 @@ def _render_source_query(
         Identifier of the built-in source to query.
     active_only : bool
         If True, only return alerts that are currently active.
+    formatted : bool
+        If True, render alerts as a table. Otherwise, pretty-print compact
+        alert objects.
     debug : bool
         If True, show progress information while the query runs.
 
@@ -166,7 +174,12 @@ def _render_source_query(
         render_console.print('[bold yellow]No alerts.[/bold yellow]')
         return
 
-    render_console.print(_render_alerts_table(alerts, show_source=False))
+    if formatted:
+        render_console.print(_render_alerts_table(alerts, show_source=False))
+        return
+
+    for alert in alerts:
+        render_console.print(_render_alert_object(alert))
 
 
 def main() -> None:
@@ -418,6 +431,7 @@ def _render_sources_table(sources: list[WarningSource]) -> Table:
     table.add_column('ID', style='bold cyan', no_wrap=True)
     table.add_column('Name', style='bold', overflow='fold')
     table.add_column('Backend', style='magenta', no_wrap=True)
+    table.add_column('V2', style='green', no_wrap=True)
     table.add_column('Country', style='green', no_wrap=True)
     table.add_column('URL', style='blue', overflow='fold')
     table.add_column('Lang', style='yellow', no_wrap=True)
@@ -428,6 +442,7 @@ def _render_sources_table(sources: list[WarningSource]) -> Table:
             source.id,
             source.name,
             source.backend,
+            'yes' if source.provider_v2 else '',
             source.country_code or '',
             source.url or '',
             source.lang or '',
@@ -435,6 +450,28 @@ def _render_sources_table(sources: list[WarningSource]) -> Table:
         )
 
     return table
+
+
+def _render_alert_object(alert: Alert) -> Panel:
+    """Render one alert as a compact Rich object preview.
+
+    Parameters
+    ----------
+    alert : Alert
+        Alert to render.
+
+    Returns
+    -------
+    Panel
+        Rich panel containing a compact pretty-printed alert view.
+
+    """
+    return Panel(
+        Pretty(alert, expand_all=True, indent_guides=True),
+        title=f'Alert {alert.id}',
+        expand=True,
+        border_style='blue',
+    )
 
 
 def _severity_style(severity: str) -> str:

@@ -8,7 +8,7 @@ from math import asin, atan2, cos, degrees, pi, radians, sin
 from typing import Any
 from xml.etree import ElementTree
 
-from .models import Alert
+from .models import Alert, Geocodes, Parameters
 
 EARTH_RADIUS_KM = 6371.0088
 CIRCLE_SEGMENTS = 36
@@ -61,7 +61,8 @@ def parse_cap_alert(
     event = _child_text(info, 'event') or 'Weather Alert'
     headline = _child_text(info, 'headline') or event
 
-    area_names, rings = _extract_area_names_and_rings(info)
+    area_names, geocodes, geometry = _extract_area_metadata(info)
+    parameters = _collect_named_values(info, 'parameter')
     onset = _child_text(info, 'onset') or _child_text(info, 'effective')
     return Alert(
         id=identifier or headline,
@@ -76,8 +77,10 @@ def parse_cap_alert(
         instruction=_child_text(info, 'instruction'),
         onset=parse_cap_datetime(onset),
         expires=parse_cap_datetime(_child_text(info, 'expires')),
-        areas=area_names,
-        geometry=_rings_to_geometry(rings),
+        area_names=area_names,
+        geocodes=geocodes,
+        parameters=parameters,
+        geometry=geometry,
     )
 
 
@@ -167,10 +170,10 @@ def _normalize_language_tag(value: str | None) -> str:
     return text.split('-', 1)[0].split('_', 1)[0]
 
 
-def _extract_area_names_and_rings(
+def _extract_area_metadata(
     info: ElementTree.Element,
-) -> tuple[list[str], list[list[list[float]]]]:
-    """Extract area names and geometry rings from a CAP ``info`` block.
+) -> tuple[list[str], Geocodes, dict[str, Any] | None]:
+    """Extract flattened area metadata from a CAP ``info`` block.
 
     Parameters
     ----------
@@ -179,30 +182,126 @@ def _extract_area_names_and_rings(
 
     Returns
     -------
-    tuple[list[str], list[list[list[float]]]]
-        Area names and GeoJSON-style rings extracted from ``areaDesc``,
-        ``polygon``, and ``circle`` elements.
+    tuple[list[str], Geocodes, dict[str, Any] | None]
+        Flat area names, grouped geocodes, and combined alert geometry.
 
     """
     area_names: list[str] = []
-    rings: list[list[list[float]]] = []
+    geocodes: Geocodes = {}
+    geometries: list[dict[str, Any]] = []
     for area in [child for child in info if _local_name(child.tag) == 'area']:
         description = _child_text(area, 'areaDesc')
         if description:
             normalized = description.replace(';', ',')
-            area_names.extend(part.strip() for part in normalized.split(',') if part.strip())
+            for part in (item.strip() for item in normalized.split(',')):
+                if part and part not in area_names:
+                    area_names.append(part)
+
+        rings: list[list[list[float]]] = []
         for child in area:
             tag_name = _local_name(child.tag)
             if tag_name == 'polygon':
                 ring = _parse_cap_polygon((child.text or '').strip())
             elif tag_name == 'circle':
                 ring = _parse_cap_circle((child.text or '').strip())
+            elif tag_name == 'geocode':
+                geocode = _parse_geocode(child)
+                if geocode is not None:
+                    values = geocodes.setdefault(geocode[0], [])
+                    if geocode[1] not in values:
+                        values.append(geocode[1])
+                continue
             else:
                 continue
             if ring:
                 rings.append(ring)
+        geometry = _rings_to_geometry(rings)
+        if geometry is not None:
+            geometries.append(geometry)
 
-    return area_names, rings
+    return area_names, geocodes, _combined_geometries(geometries)
+
+
+def _combined_geometries(geometries: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Combine area geometries into one alert-level geometry.
+
+    Parameters
+    ----------
+    geometries : list[dict[str, Any]]
+        Per-area geometries to combine.
+
+    Returns
+    -------
+    dict[str, Any] | None
+        Combined GeoJSON ``Polygon`` or ``MultiPolygon`` geometry, or
+        ``None`` if no geometries are present.
+
+    """
+    polygons: list[list[list[list[float]]]] = []
+    for geometry in geometries:
+        coordinates = geometry.get('coordinates')
+        if geometry.get('type') == 'Polygon' and isinstance(coordinates, list):
+            polygons.append(coordinates)
+        elif geometry.get('type') == 'MultiPolygon' and isinstance(coordinates, list):
+            polygons.extend(polygon for polygon in coordinates if isinstance(polygon, list))
+
+    if not polygons:
+        return None
+    if len(polygons) == 1:
+        return {'type': 'Polygon', 'coordinates': polygons[0]}
+    return {'type': 'MultiPolygon', 'coordinates': polygons}
+
+
+def _parse_geocode(element: ElementTree.Element) -> tuple[str, str] | None:
+    """Parse one CAP ``geocode`` element.
+
+    Parameters
+    ----------
+    element : ElementTree.Element
+        CAP ``geocode`` element to parse.
+
+    Returns
+    -------
+    tuple[str, str] | None
+        Parsed ``(valueName, value)`` pair if the element contains both
+        fields, otherwise ``None``.
+
+    """
+    value_name = _child_text(element, 'valueName')
+    value = _child_text(element, 'value')
+    if value_name is None or value is None:
+        return None
+    return value_name, value
+
+
+def _collect_named_values(element: ElementTree.Element, name: str) -> Parameters:
+    """Collect repeated CAP name/value elements into grouped mappings.
+
+    Parameters
+    ----------
+    element : ElementTree.Element
+        Parent XML element to inspect.
+    name : str
+        Local tag name of child elements containing ``valueName`` and
+        ``value`` children.
+
+    Returns
+    -------
+    Parameters
+        Mapping of ``valueName`` to all associated values.
+
+    """
+    values: Parameters = {}
+    for child in element:
+        if _local_name(child.tag) != name:
+            continue
+        pair = _parse_geocode(child)
+        if pair is None:
+            continue
+        bucket = values.setdefault(pair[0], [])
+        if pair[1] not in bucket:
+            bucket.append(pair[1])
+    return values
 
 
 def _parse_cap_polygon(text: str) -> list[list[float]] | None:

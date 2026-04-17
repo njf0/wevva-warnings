@@ -149,12 +149,12 @@ class QueryTests(unittest.TestCase):
     def test_get_sources_for_country_defaults_to_english_source(self) -> None:
         sources = get_sources_for_country('FI')
 
-        self.assertEqual([source.id for source in sources], ['fmi_cap_en'])
+        self.assertEqual([source.id for source in sources], ['fmi_en'])
 
     def test_get_sources_for_country_accepts_requested_language(self) -> None:
         sources = get_sources_for_country('FI', lang='fi-FI')
 
-        self.assertEqual([source.id for source in sources], ['fmi_cap_fi'])
+        self.assertEqual([source.id for source in sources], ['fmi_fi'])
 
     def test_get_sources_for_country_raises_for_unsupported_language(self) -> None:
         with self.assertRaises(LanguageNotSupportedError):
@@ -162,19 +162,19 @@ class QueryTests(unittest.TestCase):
 
     def test_get_alerts_for_point_warns_and_falls_back_for_unsupported_language(self) -> None:
         with (
-            patch('wevva_warnings.backends.generic_cap.fetch_text', side_effect=fake_fetch_text),
+            patch('wevva_warnings.backends._cap_feed.fetch_text', side_effect=fake_fetch_text),
             warnings.catch_warnings(record=True) as caught,
         ):
             warnings.simplefilter('always')
             alerts = get_alerts_for_point(60.22, 24.94, 'FI', lang='de')
 
         self.assertEqual(len(alerts), 1)
-        self.assertEqual(alerts[0].source, 'fmi_cap_en')
+        self.assertEqual(alerts[0].source, 'fmi_en')
         self.assertEqual(alerts[0].headline, 'English headline')
         self.assertEqual(len(caught), 1)
 
     def test_get_alerts_for_point_filters_by_polygon_geometry(self) -> None:
-        with patch('wevva_warnings.backends.generic_cap.fetch_text', side_effect=fake_fetch_text):
+        with patch('wevva_warnings.backends._cap_feed.fetch_text', side_effect=fake_fetch_text):
             matching = get_alerts_for_point(60.22, 24.94, 'FI')
             missing = get_alerts_for_point(61.00, 26.00, 'FI')
 
@@ -183,19 +183,19 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(missing, [])
 
     def test_get_alerts_for_point_supports_circle_geometry(self) -> None:
-        with patch('wevva_warnings.backends.generic_cap.fetch_text', side_effect=fake_fetch_text):
+        with patch('wevva_warnings.backends._cap_feed.fetch_text', side_effect=fake_fetch_text):
             alerts = get_alerts_for_point(21.5757, -71.7792, 'TC')
 
         self.assertEqual(len(alerts), 1)
-        self.assertEqual(alerts[0].source, 'tc_gov_en')
+        self.assertEqual(alerts[0].source, 'tci_en')
         self.assertEqual(alerts[0].headline, 'Severe Thunderstorm Watch for TCI [March 19, 2026]')
 
     def test_get_alerts_for_source_active_only_filters_future_alerts(self) -> None:
         with (
-            patch('wevva_warnings.backends.generic_cap.fetch_text', side_effect=fake_fetch_text),
+            patch('wevva_warnings.backends._cap_feed.fetch_text', side_effect=fake_fetch_text),
             patch('wevva_warnings.query._utc_now', return_value=datetime(2026, 3, 12, 22, 0, tzinfo=UTC)),
         ):
-            alerts = get_alerts_for_source('metservice_nz_cap', active_only=True)
+            alerts = get_alerts_for_source('metservice_nz', active_only=True)
 
         self.assertEqual(alerts, [])
 

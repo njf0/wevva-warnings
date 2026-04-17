@@ -6,7 +6,6 @@ import unittest
 
 from wevva_warnings.cap import parse_cap_alert
 from wevva_warnings.geometry import point_in_geometry
-
 MULTILINGUAL_CAP = """\
 <alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
   <identifier>fmi-demo</identifier>
@@ -51,6 +50,59 @@ CIRCLE_CAP = """\
 </alert>
 """
 
+AREA_GEOCODE_CAP = """\
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>dwd-demo</identifier>
+  <info>
+    <language>en</language>
+    <event>Wind warning</event>
+    <headline>DWD headline</headline>
+    <severity>Moderate</severity>
+    <area>
+      <areaDesc>polygonal event area</areaDesc>
+      <polygon>54.8,8.4 54.8,8.8 55.1,8.8 55.1,8.4 54.8,8.4</polygon>
+      <geocode>
+        <valueName>EXCLUDE_POLYGON</valueName>
+        <value>54.75,8.27 54.80,8.30 54.75,8.27</value>
+      </geocode>
+      <altitude>0.0</altitude>
+      <ceiling>9842.5</ceiling>
+    </area>
+    <area>
+      <areaDesc>Nordfriesische Küste</areaDesc>
+      <geocode>
+        <valueName>WARNCELLID</valueName>
+        <value>501000005</value>
+      </geocode>
+    </area>
+  </info>
+</alert>
+"""
+
+PARAMETERS_CAP = """\
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>parameters-demo</identifier>
+  <info>
+    <language>en</language>
+    <event>Heavy Rain</event>
+    <headline>Heavy Rain Warning</headline>
+    <severity>Moderate</severity>
+    <parameter>
+      <valueName>ColourCode</valueName>
+      <value>Orange</value>
+    </parameter>
+    <parameter>
+      <valueName>ChanceOfUpgrade</valueName>
+      <value>Minimal</value>
+    </parameter>
+    <area>
+      <areaDesc>Example District</areaDesc>
+      <polygon>60.0,24.0 60.0,25.0 61.0,25.0 61.0,24.0 60.0,24.0</polygon>
+    </area>
+  </info>
+</alert>
+"""
+
 
 class CAPParserTests(unittest.TestCase):
     def test_parse_cap_alert_defaults_to_english_when_available(self) -> None:
@@ -60,7 +112,8 @@ class CAPParserTests(unittest.TestCase):
         assert parsed is not None
         self.assertEqual(parsed.event, 'Wind warning')
         self.assertEqual(parsed.headline, 'English headline')
-        self.assertEqual(parsed.areas, ['Finland'])
+        self.assertEqual(parsed.area_names, ['Finland'])
+        self.assertEqual(parsed.geocodes, {})
         self.assertIsNotNone(parsed.geometry)
 
     def test_parse_cap_alert_prefers_requested_language(self) -> None:
@@ -92,3 +145,31 @@ class CAPParserTests(unittest.TestCase):
         self.assertEqual(parsed.geometry['type'], 'Polygon')
         self.assertTrue(point_in_geometry(21.5757, -71.7792, parsed.geometry))
         self.assertFalse(point_in_geometry(25.0, -71.7792, parsed.geometry))
+
+    def test_parse_cap_alert_preserves_structured_areas_and_geocodes(self) -> None:
+        parsed = parse_cap_alert(AREA_GEOCODE_CAP, source='dwd')
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.area_names, ['polygonal event area', 'Nordfriesische Küste'])
+        self.assertEqual(
+            parsed.geocodes,
+            {
+                'EXCLUDE_POLYGON': ['54.75,8.27 54.80,8.30 54.75,8.27'],
+                'WARNCELLID': ['501000005'],
+            },
+        )
+        self.assertIsNotNone(parsed.geometry)
+
+    def test_parse_cap_alert_preserves_structured_parameters(self) -> None:
+        parsed = parse_cap_alert(PARAMETERS_CAP, source='demo')
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(
+            parsed.parameters,
+            {
+                'ColourCode': ['Orange'],
+                'ChanceOfUpgrade': ['Minimal'],
+            },
+        )

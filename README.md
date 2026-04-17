@@ -67,7 +67,7 @@ wevva-warnings point 49.8 7.67 DE --lang de
 If you only want alerts that are active right now:
 
 ```bash
-wevva-warnings point 28.12 -17.24 ES --active-only
+wevva-warnings point 28.12 -17.24 ES --active
 ```
 
 If you want progress output while a query is running:
@@ -85,7 +85,14 @@ wevva-warnings sources
 To fetch alerts from one specific source:
 
 ```bash
-wevva-warnings source fmi_cap_en
+wevva-warnings source fmi_en
+```
+
+By default, `source` pretty-prints compact `Alert` objects. To render one
+source as a table instead:
+
+```bash
+wevva-warnings source fmi_en --formatted
 ```
 
 You can also run the CLI as a module:
@@ -103,9 +110,13 @@ Human CLI output is deliberately compact and readable: headline, event, severity
 * CAP parsing
 * Polygon, MultiPolygon, and CAP circle matching
 * Official API backends for NWS and GeoMet
+* Dedicated provider backends for AEMET, ANMETEO, Bahrain Meteorological Directorate, Belgidromet, Belize National Meteorological Service, BMKG, BoM and CMA via the WMO SWIC mirror, Botswana Department of Meteorological Services, CAPEWS Caribbean feeds, Cameroon National Meteorology, Chad, Comoros, Congo, Curaçao Meteorological Department, Djibouti, DMH Myanmar, DMH Paraguay, DR Congo, DWD, Ecuador INAMHI, Ethiomet, FMI, Ghana Meteorological Agency, Hong Kong Observatory, HydroMet Guyana, Hydrometcenter, IGBU, Icelandic Meteorological Office, India Meteorological Department, INAM Mozambique, INDOMET, INMET Brazil, INMET Guinea-Bissau, INUMET, Jordan Meteorological Department, KMA, Kazhydromet, Kyrgyzhydromet, Kenya Meteorological Department, Maldives Meteorological Service, MET Norway, METEO-BENIN, Meteorological Service of Jamaica, Met Eireann, MetService New Zealand, MeteoBurkina, MeteoChile, MeteoGambia, MeteoLiberia, MeteoMauritanie, MetMalawi, MeteoSC, MeteoSouthSudan, MeteoSudan, MeteoTogo, Mexico SMN, NAMEM Mongolia, Nigerian Meteorological Agency, NVE, PAGASA, Qatar Civil Aviation Authority, Saint Lucia, SLMET, SMG, SMN, Solomon Islands Meteorological Service, TCI Emergency Alerts, Thai Meteorological Department, TMA, Trinidad and Tobago Meteorological Service, Uzhydromet, Vanuatu Meteorology and Geo-Hazards Department, WeatherZW, and ZMD
 * Reusable generic CAP feed backend
 * Dedicated Meteoalarm Atom backend for Meteoalarm feeds
 * Static curated source registry
+
+The `wevva-warnings sources` table includes a `V2` column marking sources that
+have had the newer provider-specific parsing pass.
 
 ## Public API
 
@@ -137,10 +148,11 @@ If a country has multiple language-specific feeds and you do not pass `lang`, th
 
 * `wevva-warnings point LAT LON COUNTRY_CODE`
 * `wevva-warnings point LAT LON COUNTRY_CODE --lang de`
-* `wevva-warnings point LAT LON COUNTRY_CODE --active-only`
+* `wevva-warnings point LAT LON COUNTRY_CODE --active`
 * `wevva-warnings point LAT LON COUNTRY_CODE --debug`
 * `wevva-warnings source SOURCE_ID`
-* `wevva-warnings source SOURCE_ID --active-only`
+* `wevva-warnings source SOURCE_ID --active`
+* `wevva-warnings source SOURCE_ID --formatted`
 * `wevva-warnings source SOURCE_ID --debug`
 * `wevva-warnings sources`
 
@@ -150,10 +162,10 @@ If you request an unsupported country code, the CLI exits with an error. If you 
 
 The package is built around two concepts:
 
-* backends are ingestion strategies such as `nws`, `geomet`, `generic_cap`, and `meteoalarm_atom`
+* backends are ingestion strategies such as `nws`, `geomet`, `generic_cap`, `meteoalarm_atom`, and a small number of provider-specific backends where the source shape or behavior justifies it
 * sources are static definitions that point at real official warning feeds or APIs for a given country code and language
 
-This keeps the codebase small while making it easy to add future CAP-based sources through registry entries rather than new modules.
+Most CAP sources still go through shared ingestion paths, but providers with useful quirks or special behavior can have their own modules without changing the public API.
 
 ## Testing
 
@@ -165,7 +177,37 @@ uv run python tests/test_query.py
 
 ## Source registry
 
-There are currently **89** enabled sources in the built-in registry.
+There are currently **151** enabled sources in the built-in registry.
+
+Some provider backends have been migrated structurally, but could not be fully
+validated against live alerts because the feed was empty when checked. These
+should be revisited later:
+
+| Source ID | Provider | Checked | Note |
+| --- | --- | --- | --- |
+| `nms_belize` | Belize National Meteorological Service | 2026-04-17 | RSS feed was empty |
+| `meteo_cameroon_en` | Cameroon National Meteorology | 2026-04-17 | English feed was empty; French feed was live |
+| `vedur` | Icelandic Meteorological Office | 2026-04-17 | RSS feed was empty |
+| `qatar_caa_en` | Qatar Civil Aviation Authority | 2026-04-17 | RSS feed was empty |
+| `qatar_caa_ar` | Qatar Civil Aviation Authority | 2026-04-17 | RSS feed was empty |
+| `imd_india` | India Meteorological Department | 2026-04-17 | RSS feed was empty |
+| `inam_mz` | INAM Mozambique | 2026-04-17 | RSS feed was empty |
+| `eswatini_met` | Eswatini Meteorological Service | 2026-04-17 | RSS feed was empty |
+| `msj` | Meteorological Service of Jamaica | 2026-04-17 | Atom feed had no active advisories |
+| `dma_anguilla` | Disaster Management Anguilla | 2026-04-17 | Atom feed was empty |
+| `antigua_met` | Antigua and Barbuda Meteorological Service | 2026-04-17 | Atom feed was empty |
+| `dem_barbados` | Department of Emergency Management Barbados | 2026-04-17 | Atom feed was empty |
+| `dmh_myanmar` | Department of Meteorology and Hydrology Myanmar | 2026-04-17 | Atom feed was empty |
+| `meteo_cw_en` | Meteorological Department Curaçao | 2026-04-17 | English feed was empty |
+| `meteoalarm_atom_andorra` | Meteoalarm | 2026-04-17 | Atom feed was empty |
+| `pagasa` | PAGASA | 2026-04-17 | Atom feed was empty |
+| `ametvigilance_dz` | AmetVigilance Algeria | 2026-04-17 | Candidate feed URL returned the web app shell, not a usable RSS or CAP feed |
+| `kuwait_met` | Kuwait Meteorology | 2026-04-17 | Host did not resolve from this environment |
+| `saudi_ncm_en` | Saudi NCM (English) | 2026-04-17 | Feed request hung or returned 503 while checking |
+| `saudi_ncm_ar` | Saudi NCM (Arabic) | 2026-04-17 | Feed request hung while checking |
+| `svg_met` | Saint Vincent and the Grenadines Meteorological Services | 2026-04-17 | Atom feed was empty |
+| `tmd_en` | Thai Meteorological Department | 2026-04-17 | RSS feed was empty |
+| `tmd_th` | Thai Meteorological Department | 2026-04-17 | RSS feed was empty |
 
 For the full current list, use:
 
@@ -175,28 +217,37 @@ wevva-warnings sources
 
 The source definitions themselves live in [wevva_warnings/sources.py](wevva_warnings/sources.py). The looser [all_sources.txt](all_sources.txt) file is kept as a broader reference and backlog.
 
-## Unsupported sources
+## WMO Gap Tracker
 
-These entries are present in the [SWIC sources list](https://severeweather.wmo.int/sources.html) but are not currently enabled in the registry. Common reasons include feeds with no point-matchable geometry, stale or empty feeds, broken TLS, DNS or reachability problems, or sources that still need a proper verification pass.
+The [sources.csv](sources.csv) file is a local snapshot of the WMO source list.
+Compared with the current registry, the remaining gaps fall into four useful
+categories.
 
-* `A-C`: Afghanistan, Albania, Algeria, Angola, Anguilla, Antigua and Barbuda, Austria, Barbados, Belarus, Belgium, Bosnia and Herzegovina, Brazil, British Virgin Islands, Bulgaria, Central African Republic, China, Costa Rica, Côte d'Ivoire, Croatia, Cyprus, Czechia
-* `D-M`: Denmark, Egypt, France, Gabon, Greece, Hong Kong, China, Hungary, Iran, Iraq, Ireland, Israel, Italy, Jamaica, Kuwait, Latvia, Lesotho, Libya (State of), Lithuania, Luxembourg, Madagascar, Mali, Malta, Mauritius, Mexico, Montenegro, Myanmar
-* `N-S`: Netherlands, Niger, North Macedonia, Oman, Panama, Philippines, Poland, Portugal, Republic of Moldova, Romania, Saint Vincent and the Grenadines, São Tomé and Príncipe, Saudi Arabia, Senegal, Serbia, Singapore, Slovakia, South Africa, Suriname
-* `T-Y`: Thailand, Timor-Leste, Tunisia, Tuvalu, Uganda, United Kingdom of Great Britain and Northern Ireland, Viet Nam, Yemen
+### Genuinely new providers
 
-## Partially supported entries
+At the moment there are no remaining clean WMO-mirror provider gaps in this
+table. The remaining expansion work is mostly in the revisit-later queue,
+language variants we skipped deliberately, or special cases like Australia and
+China.
 
-These countries are enabled, but not every feed or advertised language is currently registered:
+### Intentionally skipped language variants
 
-* Cameroon: `en` and `fr` are supported; the `ha` feed is not enabled.
-* Curaçao and Sint Maarten: Curaçao `en`, `nl`, and `pap` are supported; the WMO mirror `es` feed is not enabled, and Sint Maarten is not separately registered.
-* India: the IMD `en` feed is supported; the NDMA `sachet` feed is not enabled.
-* Mongolia: the `en` feed is supported; the `mn` feed is not enabled.
-* Nigeria: the `en` feed is supported; the `ha` feed is not enabled.
-* Republic of Korea: the `en` feed is supported; no separate verified `ko` feed is currently registered.
-* Sudan: the source is enabled, but registered as `ar` because the live CAP payloads checked were Arabic-only despite the catalogue entry claiming English.
-* Togo: the source is enabled, but registered as `fr` because the live CAP payloads checked were French-only despite the catalogue entry advertising `en, fr`.
-* Ukraine: the Meteoalarm `en` feed is supported; no separate verified `uk` feed is currently registered.
+These are additional language feeds or mirror variants for countries already in
+the registry. We skipped them deliberately rather than because they were missed.
+
+| Country / provider | Missing variant | Current support | Note |
+| --- | --- | --- | --- |
+| Cameroon | `cm-meteo-ha` | `meteo_cameroon_en`, `meteo_cameroon_fr` | Hausa mirror feed not enabled |
+| Curaçao and Sint Maarten | `cw-meteo-es` | `meteo_cw_en`, `meteo_cw_nl`, `meteo_cw_pap` | Spanish WMO mirror not enabled |
+| India | NDMA `sachet` RSS | `imd_india` | Separate provider family from IMD |
+| Mongolia | `mn-namem-mn` | `namem_en` | Mongolian feed not enabled |
+| Nigeria | `ng-nimet-ha` | `nimet_en` | Hausa feed not enabled |
+
+### Good next candidates
+
+There are no remaining top-priority candidates in this bucket right now. The
+main unfinished work is the revisit-later queue and the intentionally skipped
+language variants.
 
 ## Notes
 
@@ -204,6 +255,6 @@ CAP feed entries are curated manually from authoritative official sources, inclu
 
 BMKG requires downstream applications to credit BMKG as the data source when using its CAP feeds.
 
-Meteoalarm support is currently limited to the subset of feeds whose linked CAP alerts contain point-matchable polygon geometry.
+Meteoalarm support is registered broadly through the Atom backend, but the usefulness of individual country feeds still depends on the linked CAP alerts carrying point-matchable geometry.
 
 Some CAP feeds, such as Bahrain, are published through the WMO Alert Hub mirror URLs listed in the SWIC catalogue rather than a provider-hosted domain.

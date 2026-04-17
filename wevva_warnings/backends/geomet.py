@@ -190,7 +190,7 @@ class GeoMetBackend(WarningBackend):
             instruction=self._localized_text(properties, 'instruction', lang),
             onset=self.parse_datetime(properties.get('publication_datetime') or properties.get('validity_datetime')),
             expires=self.parse_datetime(properties.get('expiration_datetime') or properties.get('event_end_datetime')),
-            areas=areas,
+            area_names=areas,
             geometry=geometry,
         )
 

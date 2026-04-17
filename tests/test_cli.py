@@ -19,7 +19,7 @@ runner = CliRunner()
 class CLITests(unittest.TestCase):
     def test_point_command_passes_flags(self) -> None:
         with patch('wevva_warnings.cli.get_alerts_for_point', return_value=[]) as get_alerts:
-            result = runner.invoke(app, ['point', '40.71', '-74.00', 'DE', '--lang', 'de', '--debug', '--active-only'])
+            result = runner.invoke(app, ['point', '40.71', '-74.00', 'DE', '--lang', 'de', '--debug', '--active'])
 
         self.assertEqual(result.exit_code, 0)
         get_alerts.assert_called_once_with(40.71, -74.0, 'DE', lang='de', debug=True, active_only=True)
@@ -54,7 +54,7 @@ class CLITests(unittest.TestCase):
 
     def test_source_command_passes_flags(self) -> None:
         source = WarningSource(
-            id='fmi_cap_en',
+            id='fmi_en',
             name='FMI',
             backend='generic_cap',
             country_code='FI',
@@ -66,15 +66,59 @@ class CLITests(unittest.TestCase):
             patch('wevva_warnings.cli.get_source', return_value=source),
             patch('wevva_warnings.cli.get_alerts_for_source', return_value=[]) as get_alerts,
         ):
-            result = runner.invoke(app, ['source', 'fmi_cap_en', '--debug', '--active-only'])
+            result = runner.invoke(app, ['source', 'fmi_en', '--debug', '--active', '--formatted'])
 
         self.assertEqual(result.exit_code, 0)
-        get_alerts.assert_called_once_with('fmi_cap_en', debug=True, active_only=True)
+        get_alerts.assert_called_once_with('fmi_en', debug=True, active_only=True)
 
-    def test_source_command_prints_human_output(self) -> None:
+    def test_source_command_pretty_prints_alert_object_by_default(self) -> None:
         alert = Alert(
             id='demo',
-            source='fmi_cap_en',
+            source='fmi_en',
+            event='Wind Warning',
+            headline='Wind Warning',
+            severity='Moderate',
+            description='Strong west winds expected.',
+            area_names=['Demo County'],
+            geocodes={'WARNCELLID': ['123456']},
+            geometry={
+                'type': 'Polygon',
+                'coordinates': [[[-77.1, 38.8], [-77.0, 38.9], [-76.9, 38.8], [-77.1, 38.8]]],
+            },
+            onset=datetime(2026, 3, 12, 12, 0, tzinfo=UTC),
+            expires=datetime(2026, 3, 12, 18, 0, tzinfo=UTC),
+        )
+
+        with (
+            patch(
+                'wevva_warnings.cli.get_source',
+                return_value=WarningSource(
+                    id='fmi_en',
+                    name='FMI',
+                    backend='generic_cap',
+                    country_code='FI',
+                    url='https://alerts.fmi.fi/cap/feed/rss_en-GB.rss',
+                    lang='en',
+                ),
+            ),
+            patch('wevva_warnings.cli.get_alerts_for_source', return_value=[alert]),
+        ):
+            result = runner.invoke(app, ['source', 'fmi_en'])
+
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn('Alert demo', result.stdout)
+        self.assertIn('Alert(', result.stdout)
+        self.assertIn("headline='Wind Warning'", result.stdout)
+        self.assertIn("'WARNCELLID': [", result.stdout)
+        self.assertIn("'123456'", result.stdout)
+        self.assertIn("'bbox':", result.stdout)
+        self.assertNotIn("'headline': 'Wind Warning'", result.stdout)
+        self.assertNotIn("'coordinates':", result.stdout)
+
+    def test_source_command_prints_formatted_table_when_requested(self) -> None:
+        alert = Alert(
+            id='demo',
+            source='fmi_en',
             event='Wind Warning',
             headline='Wind Warning',
             severity='Moderate',
@@ -87,7 +131,7 @@ class CLITests(unittest.TestCase):
             patch(
                 'wevva_warnings.cli.get_source',
                 return_value=WarningSource(
-                    id='fmi_cap_en',
+                    id='fmi_en',
                     name='FMI',
                     backend='generic_cap',
                     country_code='FI',
@@ -97,7 +141,7 @@ class CLITests(unittest.TestCase):
             ),
             patch('wevva_warnings.cli.get_alerts_for_source', return_value=[alert]),
         ):
-            result = runner.invoke(app, ['source', 'fmi_cap_en'])
+            result = runner.invoke(app, ['source', 'fmi_en', '--formatted'])
 
         self.assertEqual(result.exit_code, 0)
         self.assertIn('Wind Warning', result.stdout)

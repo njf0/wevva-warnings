@@ -4,7 +4,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from .models import Alert
 from .query import get_alerts_for_point, get_alerts_for_source
-from .registry import LanguageNotSupportedError, UnsupportedCountryError, list_sources
+from .registry import LanguageNotSupportedError, UnsupportedCountryError, list_sources, list_v2_sources
 from .sources import WarningSource
 
 try:
@@ -21,4 +21,5 @@ __all__ = [
     'get_alerts_for_point',
     'get_alerts_for_source',
     'list_sources',
+    'list_v2_sources',
 ]

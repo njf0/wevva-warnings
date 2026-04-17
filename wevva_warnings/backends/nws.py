@@ -123,6 +123,6 @@ class NWSBackend(WarningBackend):
             instruction=self.text_or_none(properties.get('instruction')),
             onset=self.parse_datetime(properties.get('onset') or properties.get('effective') or properties.get('sent')),
             expires=self.parse_datetime(properties.get('ends') or properties.get('expires')),
-            areas=self.split_areas(properties.get('areaDesc')),
+            area_names=self.split_areas(properties.get('areaDesc')),
             geometry=geometry,
         )
