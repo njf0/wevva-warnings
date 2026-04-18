@@ -13,6 +13,7 @@ authors = [
     { name = "Nick Ferguson", email = "nick.ferguson@ed.ac.uk" },
 ]
 dependencies = [
+    "pyshp>=3.0.3",
     "rich>=14.3.3",
     "typer>=0.24.1",
 ]
@@ -34,3 +35,6 @@ wevva-warnings = "wevva_warnings.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["wevva_warnings*"]
+
+[tool.setuptools.package-data]
+wevva_warnings = ["data/*.json.gz"]

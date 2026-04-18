@@ -2,6 +2,7 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
+from .geocoding import geometry_from_geocodes, resolve_alert_geometry
 from .models import Alert
 from .query import get_alerts_for_point, get_alerts_for_source
 from .registry import LanguageNotSupportedError, UnsupportedCountryError, list_sources, list_v2_sources
@@ -18,8 +19,10 @@ __all__ = [
     'UnsupportedCountryError',
     'WarningSource',
     '__version__',
+    'geometry_from_geocodes',
     'get_alerts_for_point',
     'get_alerts_for_source',
     'list_sources',
     'list_v2_sources',
+    'resolve_alert_geometry',
 ]

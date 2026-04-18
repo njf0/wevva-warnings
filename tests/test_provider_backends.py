@@ -49,6 +49,7 @@ from wevva_warnings.backends.saint_lucia import SaintLuciaBackend
 from wevva_warnings.backends.smn import SMNBackend
 from wevva_warnings.backends.slmet import SLMETBackend
 from wevva_warnings.backends.smg import SMGBackend
+from wevva_warnings.backends.swic_mirror import SWICMirrorBackend
 from wevva_warnings.backends.tma import TMABackend
 from wevva_warnings.backends.tci import TCIBackend
 from wevva_warnings.backends.ttms import TTMSBackend
@@ -697,6 +698,32 @@ KMA_FEED = """\
       <title>Strong Wind Watch</title>
       <link>https://www.weather.go.kr/w/repositary/xml/wrn/xml/KR.W2604075_202604161200_SWA_75_EN.xml</link>
       <guid isPermaLink="false">KR.W2604075_202604161200_SWA_75_EN</guid>
+    </item>
+  </channel>
+</rss>
+"""
+
+SWIC_FEED = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>Latest family revision</title>
+      <link>https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/2026/04/18/12/00/23-latest.xml</link>
+      <pubDate>Sat, 18 Apr 2026 12:08:11 +0000</pubDate>
+      <guid isPermaLink="false">AusBoM-IDV20600-2026-04-18T12:00:23+00:00</guid>
+    </item>
+    <item>
+      <title>Older family revision</title>
+      <link>https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/2026/04/18/06/15/01-older.xml</link>
+      <pubDate>Sat, 18 Apr 2026 06:17:10 +0000</pubDate>
+      <guid isPermaLink="false">AusBoM-IDV20600-2026-04-18T06:15:01+00:00</guid>
+    </item>
+    <item>
+      <title>Different family</title>
+      <link>https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/2026/04/18/10/45/38-other.xml</link>
+      <pubDate>Sat, 18 Apr 2026 10:53:12 +0000</pubDate>
+      <guid isPermaLink="false">AusBoM-IDN29000-2026-04-18T10:45:38+00:00</guid>
     </item>
   </channel>
 </rss>
@@ -1367,6 +1394,60 @@ class ProviderBackendTests(unittest.TestCase):
             'https://archivos.meteochile.gob.cl/portaldmc/AAA/doc/evento_A186_2026.php',
             requested_urls,
         )
+
+    def test_swic_mirror_backend_keeps_only_latest_guid_family_revision(self) -> None:
+        backend = SWICMirrorBackend()
+        source = get_source('bom')
+        assert source is not None
+
+        latest_url = 'https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/2026/04/18/12/00/23-latest.xml'
+        older_url = 'https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/2026/04/18/06/15/01-older.xml'
+        other_url = 'https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/2026/04/18/10/45/38-other.xml'
+
+        def fake_fetch_text(url: str, **_: object) -> str:
+            documents = {
+                source.url: SWIC_FEED,
+                latest_url: CAP_ALERT.format(
+                    identifier='swic-latest',
+                    language='en',
+                    event='Wind',
+                    headline='Latest family revision',
+                    area='Victoria',
+                    polygon='-38.0,144.0 -37.9,144.2 -37.8,144.0 -38.0,144.0',
+                    area_extras='',
+                    extra_areas='',
+                ),
+                older_url: CAP_ALERT.format(
+                    identifier='swic-older',
+                    language='en',
+                    event='Wind',
+                    headline='Older family revision',
+                    area='Victoria',
+                    polygon='-38.0,144.0 -37.9,144.2 -37.8,144.0 -38.0,144.0',
+                    area_extras='',
+                    extra_areas='',
+                ),
+                other_url: CAP_ALERT.format(
+                    identifier='swic-other',
+                    language='en',
+                    event='Graziers',
+                    headline='Different family',
+                    area='Victoria',
+                    polygon='-38.1,144.1 -38.0,144.3 -37.9,144.1 -38.1,144.1',
+                    area_extras='',
+                    extra_areas='',
+                ),
+            }
+            return documents[url]
+
+        with patch('wevva_warnings.backends._cap_feed.fetch_text', side_effect=fake_fetch_text) as fetch_text:
+            alerts = backend.fetch_alerts(source)
+
+        self.assertEqual([alert.id for alert in alerts], ['swic-latest', 'swic-other'])
+        requested_urls = [call.args[0] for call in fetch_text.call_args_list]
+        self.assertIn(latest_url, requested_urls)
+        self.assertIn(other_url, requested_urls)
+        self.assertNotIn(older_url, requested_urls)
 
     def test_meteoliberia_backend_fetches_direct_cap_documents(self) -> None:
         backend = MeteoLiberiaBackend()

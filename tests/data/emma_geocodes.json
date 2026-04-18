@@ -1,0 +1,47 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "code": "BE001",
+        "country": "BE",
+        "name": "Luxembourg",
+        "type": "EMMA_ID"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [5.0, 49.5],
+            [6.0, 49.5],
+            [6.0, 50.0],
+            [5.0, 50.0],
+            [5.0, 49.5]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "code": "FR073",
+        "country": "FR",
+        "name": "Aisne",
+        "type": "EMMA_ID"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [3.0, 49.5],
+            [4.0, 49.5],
+            [4.0, 50.0],
+            [3.0, 50.0],
+            [3.0, 49.5]
+          ]
+        ]
+      }
+    }
+  ]
+}

@@ -7,6 +7,7 @@ import warnings
 from datetime import UTC, datetime
 
 from ._debug import emit_progress
+from .geocoding import resolve_alert_geometry
 from .geometry import point_in_geometry
 from .models import Alert
 from .registry import LanguageNotSupportedError, get_backend, get_source, get_sources_for_country
@@ -94,10 +95,11 @@ def get_alerts_for_point(
 
         for alert in source_alerts:
             if not backend.uses_native_point_query:
-                if alert.geometry is None:
+                geometry = _resolved_alert_geometry(alert)
+                if geometry is None:
                     missing_geometry += 1
                     continue
-                if not point_in_geometry(lat, lon, alert.geometry):
+                if not point_in_geometry(lat, lon, geometry):
                     continue
 
             if active_only and now is not None and not alert.is_active(now):
@@ -177,6 +179,7 @@ def get_alerts_for_source(
     seen: set[tuple[str, str]] = set()
     inactive_skipped = 0
     for alert in alerts:
+        _resolved_alert_geometry(alert)
         if active_only and now is not None and not alert.is_active(now):
             inactive_skipped += 1
             continue
@@ -208,3 +211,13 @@ def _utc_now() -> datetime:
 
     """
     return datetime.now(UTC)
+
+
+def _resolved_alert_geometry(alert: Alert) -> dict[str, object] | None:
+    """Return alert geometry, populating it from geocodes when possible."""
+    if alert.geometry is not None:
+        return alert.geometry
+    geometry = resolve_alert_geometry(alert)
+    if geometry is not None:
+        alert.geometry = geometry
+    return geometry
