@@ -21,7 +21,7 @@ DEFAULT_TIMEOUT = 180
 try:
     PACKAGE_VERSION = version('wevva-warnings')
 except PackageNotFoundError:
-    PACKAGE_VERSION = '0.2.1'
+    PACKAGE_VERSION = '0.3.0'
 DEFAULT_USER_AGENT = f'wevva-warnings/{PACKAGE_VERSION}'
 
 
