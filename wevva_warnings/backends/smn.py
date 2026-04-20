@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from xml.etree import ElementTree
 
 from ..models import Alert
@@ -75,12 +76,38 @@ def _smn_alert_urls(root: ElementTree.Element, *, base_url: str) -> list[str]:
 
     """
     urls: list[str] = []
+    seen_families: set[str] = set()
     for item in root.iter():
         if local_name(item.tag) != 'item':
             continue
         for candidate in (child_text(item, 'link'), child_text(item, 'guid')):
             url = absolute_url(base_url, candidate)
             if url and '/feeds/cap/' in url.lower() and url.lower().endswith('.xml'):
+                family_key = _smn_family_key(url)
+                if family_key is not None:
+                    if family_key in seen_families:
+                        break
+                    seen_families.add(family_key)
                 urls.append(url)
                 break
     return urls
+
+
+def _smn_family_key(url: str) -> str | None:
+    """Return a stable SMN warning-family key inferred from a CAP URL.
+
+    Argentina SMN feeds can expose long revision histories. When the linked CAP
+    filename ends with a timestamp-like revision suffix, keep only the newest
+    item for that family. If no stable family can be inferred, do not prune.
+    """
+    filename = url.rsplit('/', 1)[-1]
+    if not filename.lower().endswith('.xml'):
+        return None
+
+    stem = filename[:-4]
+    match = re.match(r'^(.*?)[_-](?:20\d{6,14}(?:t\d{4,6})?|\d{8,14})$', stem, flags=re.IGNORECASE)
+    if match is None:
+        return None
+
+    family = match.group(1).strip('._-')
+    return family or None

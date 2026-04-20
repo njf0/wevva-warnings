@@ -24,6 +24,9 @@ def point_in_geometry(lat: float, lon: float, geometry: dict[str, Any]) -> bool:
         ``True`` if the point lies inside the geometry, otherwise ``False``.
 
     """
+    if not _point_in_bbox(lat, lon, geometry.get('bbox')):
+        return False
+
     geometry_type = geometry.get('type')
     coordinates = geometry.get('coordinates')
 
@@ -32,6 +35,16 @@ def point_in_geometry(lat: float, lon: float, geometry: dict[str, Any]) -> bool:
     if geometry_type == 'MultiPolygon' and isinstance(coordinates, list):
         return any(_point_in_polygon(lat, lon, polygon) for polygon in coordinates)
     return False
+
+
+def _point_in_bbox(lat: float, lon: float, bbox: Any) -> bool:
+    """Return whether a point lies inside a [min_lon, min_lat, max_lon, max_lat] bbox."""
+    if not isinstance(bbox, list) or len(bbox) != 4:
+        return True
+    min_lon, min_lat, max_lon, max_lat = bbox
+    if not all(isinstance(value, (int, float)) for value in (min_lon, min_lat, max_lon, max_lat)):
+        return True
+    return float(min_lon) <= lon <= float(max_lon) and float(min_lat) <= lat <= float(max_lat)
 
 
 def _point_in_polygon(lat: float, lon: float, polygon: Any) -> bool:

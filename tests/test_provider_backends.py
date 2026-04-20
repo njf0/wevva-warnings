@@ -19,6 +19,7 @@ from wevva_warnings.backends.inamhi import INAMHIBackend
 from wevva_warnings.backends.igebu import IGEBUBackend
 from wevva_warnings.backends.indomet import INDOMETBackend
 from wevva_warnings.backends.inumet import INUMETBackend
+from wevva_warnings.backends.jma import JMABackend
 from wevva_warnings.backends.kazhydromet import KazhydrometBackend
 from wevva_warnings.backends.kma import KMABackend
 from wevva_warnings.backends.kyrgyzhydromet import KyrgyzhydrometBackend
@@ -538,6 +539,29 @@ SMN_FEED = """\
 </rss>
 """
 
+SMN_FEED_WITH_REVISIONS = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>Tormentas revision nueva</title>
+      <link>https://ssl.smn.gob.ar/feeds/CAP/cap_salida/alerta_tormentas_202604201200.xml</link>
+      <guid>https://ssl.smn.gob.ar/feeds/CAP/cap_salida/alerta_tormentas_202604201200.xml</guid>
+    </item>
+    <item>
+      <title>Tormentas revision vieja</title>
+      <link>https://ssl.smn.gob.ar/feeds/CAP/cap_salida/alerta_tormentas_202604201000.xml</link>
+      <guid>https://ssl.smn.gob.ar/feeds/CAP/cap_salida/alerta_tormentas_202604201000.xml</guid>
+    </item>
+    <item>
+      <title>Viento</title>
+      <link>https://ssl.smn.gob.ar/feeds/CAP/cap_salida/alerta_viento_202604201130.xml</link>
+      <guid>https://ssl.smn.gob.ar/feeds/CAP/cap_salida/alerta_viento_202604201130.xml</guid>
+    </item>
+  </channel>
+</rss>
+"""
+
 INUMET_FEED = """\
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
@@ -779,6 +803,67 @@ SMG_FEED = """\
     </item>
   </channel>
 </rss>
+"""
+
+JMA_FEED = """\
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" lang="ja">
+  <title>高頻度（随時）</title>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260418214050_0_VPWW53_200000.xml</id>
+    <updated>2026-04-18T21:40:49Z</updated>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260418214050_0_VPWW53_200000.xml"/>
+  </entry>
+  <entry>
+    <title>気象警報・注意報（Ｈ２７）</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260418214050_0_VPWW54_200000.xml</id>
+    <updated>2026-04-18T21:40:49Z</updated>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260418214050_0_VPWW54_200000.xml"/>
+  </entry>
+</feed>
+"""
+
+JMA_WARNING = """\
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/">
+  <Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/">
+    <Title>長野県気象警報・注意報</Title>
+    <ReportDateTime>2026-04-19T06:40:00+09:00</ReportDateTime>
+    <TargetDateTime>2026-04-19T06:40:00+09:00</TargetDateTime>
+    <Headline>
+      <Text>北部、中部では、２０日まで空気の乾燥した状態が続くため、火の取り扱いに注意してください。</Text>
+    </Headline>
+  </Head>
+  <Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/">
+    <Information type="気象警報・注意報（市町村等）">
+      <Item>
+        <Kind>
+          <Name>乾燥注意報</Name>
+          <Code>21</Code>
+        </Kind>
+        <Areas codeType="気象・地震・火山情報／市町村等">
+          <Area>
+            <Name>長野市</Name>
+            <Code>2020100</Code>
+          </Area>
+        </Areas>
+      </Item>
+      <Item>
+        <Kind>
+          <Name>霜注意報</Name>
+          <Code>24</Code>
+          <Status>解除</Status>
+        </Kind>
+        <Areas codeType="気象・地震・火山情報／市町村等">
+          <Area>
+            <Name>松本市</Name>
+            <Code>2020200</Code>
+          </Area>
+        </Areas>
+      </Item>
+    </Information>
+  </Body>
+</Report>
 """
 
 CAP_ALERT = """\
@@ -1478,6 +1563,41 @@ class ProviderBackendTests(unittest.TestCase):
         self.assertEqual([alert.id for alert in alerts], ['meteoliberia-demo'])
         self.assertEqual(alerts[0].url, 'https://meteoliberia.com/api/cap/meteoliberia-demo.xml')
         self.assertEqual(alerts[0].area_names, ['Greenville', 'Robertfield'])
+
+    def test_jma_backend_fetches_vpww53_warning_bulletins(self) -> None:
+        backend = JMABackend()
+        source = get_source('jma')
+        assert source is not None
+
+        warning_url = 'https://www.data.jma.go.jp/developer/xml/data/20260418214050_0_VPWW53_200000.xml'
+        legacy_url = 'https://www.data.jma.go.jp/developer/xml/data/20260418214050_0_VPWW54_200000.xml'
+
+        def fake_fetch_text(url: str, **_: object) -> str:
+            documents = {
+                source.url: JMA_FEED,
+                warning_url: JMA_WARNING,
+                legacy_url: '<ignored />',
+            }
+            return documents[url]
+
+        with patch('wevva_warnings.backends._cap_feed.fetch_text', side_effect=fake_fetch_text), patch(
+            'wevva_warnings.backends.jma.fetch_text',
+            side_effect=fake_fetch_text,
+        ) as fetch_text:
+            alerts = backend.fetch_alerts(source)
+
+        self.assertEqual(len(alerts), 1)
+        alert = alerts[0]
+        self.assertEqual(alert.id, '20260418214050_0_VPWW53_200000')
+        self.assertEqual(alert.event, '乾燥注意報')
+        self.assertEqual(alert.headline, '長野県気象警報・注意報')
+        self.assertEqual(alert.severity, 'Minor')
+        self.assertEqual(alert.area_names, ['長野市'])
+        self.assertEqual(alert.geocodes, {'JMA Area Code': ['2020100']})
+        self.assertEqual(alert.parameters, {'JMA Warning Kind': ['乾燥注意報']})
+        requested_urls = [call.args[0] for call in fetch_text.call_args_list]
+        self.assertIn(warning_url, requested_urls)
+        self.assertNotIn(legacy_url, requested_urls)
 
     def test_meteobenin_backend_fetches_direct_cap_documents(self) -> None:
         backend = MeteoBeninBackend()
@@ -2670,3 +2790,57 @@ class ProviderBackendTests(unittest.TestCase):
         self.assertEqual([alert.id for alert in alerts], ['smn-demo'])
         self.assertEqual(alerts[0].url, 'https://ssl.smn.gob.ar/feeds/CAP/cap_salida/smn-demo.xml')
         self.assertEqual(alerts[0].area_names, ['Buenos Aires'])
+
+    def test_smn_backend_keeps_only_latest_family_revision(self) -> None:
+        backend = SMNBackend()
+        source = get_source('smn')
+        assert source is not None
+
+        newest_url = 'https://ssl.smn.gob.ar/feeds/CAP/cap_salida/alerta_tormentas_202604201200.xml'
+        older_url = 'https://ssl.smn.gob.ar/feeds/CAP/cap_salida/alerta_tormentas_202604201000.xml'
+        other_url = 'https://ssl.smn.gob.ar/feeds/CAP/cap_salida/alerta_viento_202604201130.xml'
+
+        def fake_fetch_text(url: str, **_: object) -> str:
+            documents = {
+                source.url: SMN_FEED_WITH_REVISIONS,
+                newest_url: CAP_ALERT.format(
+                    identifier='smn-tormentas-new',
+                    language='es-AR',
+                    event='Tormentas',
+                    headline='Tormentas',
+                    area='Buenos Aires',
+                    polygon='-34.80,-58.60 -34.80,-58.20 -34.40,-58.20 -34.80,-58.60',
+                    area_extras='',
+                    extra_areas='',
+                ),
+                older_url: CAP_ALERT.format(
+                    identifier='smn-tormentas-old',
+                    language='es-AR',
+                    event='Tormentas',
+                    headline='Tormentas antigua',
+                    area='Buenos Aires',
+                    polygon='-34.80,-58.60 -34.80,-58.20 -34.40,-58.20 -34.80,-58.60',
+                    area_extras='',
+                    extra_areas='',
+                ),
+                other_url: CAP_ALERT.format(
+                    identifier='smn-viento',
+                    language='es-AR',
+                    event='Viento',
+                    headline='Viento',
+                    area='Cordoba',
+                    polygon='-31.6,-64.4 -31.6,-64.0 -31.2,-64.0 -31.6,-64.4',
+                    area_extras='',
+                    extra_areas='',
+                ),
+            }
+            return documents[url]
+
+        with patch('wevva_warnings.backends._cap_feed.fetch_text', side_effect=fake_fetch_text) as fetch_text:
+            alerts = backend.fetch_alerts(source)
+
+        self.assertEqual([alert.id for alert in alerts], ['smn-tormentas-new', 'smn-viento'])
+        requested_urls = [call.args[0] for call in fetch_text.call_args_list]
+        self.assertIn(newest_url, requested_urls)
+        self.assertIn(other_url, requested_urls)
+        self.assertNotIn(older_url, requested_urls)

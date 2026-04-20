@@ -10,11 +10,12 @@ from typing import Any
 
 from .models import Alert, Geocodes, Geometry
 
-_EMMA_PACKAGED_DATASET = 'emma_geocodes_3dp.json.gz'
+_EMMA_PACKAGED_DATASET = 'emma_geocodes'
 _EMMA_SOURCE_DATASET_GLOB = 'MeteoAlarm_Geocodes_*.json'
-_EMMA_ALIASES_PACKAGED_DATASET = 'emma_aliases.json.gz'
+_EMMA_ALIASES_PACKAGED_DATASET = 'emma_aliases.json'
 _EMMA_ALIASES_SOURCE_DATASET_GLOB = 'MeteoAlarm_Geocode_Aliases*.json'
-_BOM_AMOC_PACKAGED_DATASET = 'bom_amoc_geocodes.json.gz'
+_BOM_AMOC_PACKAGED_DATASET = 'bom_amoc_geocodes'
+_JMA_AREA_PACKAGED_DATASET_DIR = 'jma_area_geocodes'
 
 
 def resolve_alert_geometry(alert: Alert) -> Geometry | None:
@@ -40,17 +41,22 @@ def geometry_from_geocodes(geocodes: Geocodes) -> Geometry | None:
     geometries: list[Geometry] = []
 
     if codes:
-        index = _load_emma_index()
         for code in codes:
-            geometry = index.get(code)
+            geometry = _load_emma_geometry(code)
             if geometry is not None:
                 geometries.append(geometry)
 
     bom_codes = geocodes.get('AMOC-AreaCode') or []
     if bom_codes:
-        bom_index = _load_bom_amoc_index()
         for code in bom_codes:
-            geometry = bom_index.get(code)
+            geometry = _load_bom_amoc_geometry(code)
+            if geometry is not None:
+                geometries.append(geometry)
+
+    jma_codes = geocodes.get('JMA Area Code') or []
+    if jma_codes:
+        for code in jma_codes:
+            geometry = _load_jma_area_geometry(code)
             if geometry is not None:
                 geometries.append(geometry)
 
@@ -116,6 +122,24 @@ def _load_emma_index() -> dict[str, Geometry]:
     return index
 
 
+@lru_cache(maxsize=4096)
+def _load_emma_geometry(code: str) -> Geometry | None:
+    """Load one EMMA geometry lazily from its packaged file."""
+    dataset_dir = _find_emma_dataset_dir()
+    if dataset_dir is not None and isinstance(code, str) and code:
+        for path in (dataset_dir / f'{code}.json.gz', dataset_dir / f'{code}.json'):
+            if not path.exists():
+                continue
+            payload = _load_json_path(path)
+            if isinstance(payload, dict):
+                geometry = payload.get('geometry')
+                if isinstance(geometry, dict):
+                    return geometry
+
+    index = _load_emma_index()
+    return index.get(code)
+
+
 @lru_cache(maxsize=1)
 def _load_emma_aliases() -> dict[str, dict[str, list[str]]]:
     """Load the local EMMA alias dataset."""
@@ -154,10 +178,16 @@ def _find_emma_dataset_path() -> Path | None:
     package_data_dir = Path(__file__).resolve().parent / 'data'
     root_dir = Path(__file__).resolve().parent.parent
     candidates = [
-        package_data_dir / _EMMA_PACKAGED_DATASET,
+        package_data_dir / f'{_EMMA_PACKAGED_DATASET}.json.gz',
         *sorted(root_dir.glob(_EMMA_SOURCE_DATASET_GLOB), reverse=True),
     ]
     return next((path for path in candidates if path.exists()), None)
+
+
+def _find_emma_dataset_dir() -> Path | None:
+    """Return the packaged EMMA dataset directory when available."""
+    dataset_dir = Path(__file__).resolve().parent / 'data' / _EMMA_PACKAGED_DATASET
+    return dataset_dir if dataset_dir.exists() else None
 
 
 def _find_emma_aliases_path() -> Path | None:
@@ -166,6 +196,7 @@ def _find_emma_aliases_path() -> Path | None:
     root_dir = Path(__file__).resolve().parent.parent
     candidates = [
         package_data_dir / _EMMA_ALIASES_PACKAGED_DATASET,
+        package_data_dir / f'{_EMMA_ALIASES_PACKAGED_DATASET}.gz',
         *sorted(root_dir.glob(_EMMA_ALIASES_SOURCE_DATASET_GLOB), reverse=True),
     ]
     return next((path for path in candidates if path.exists()), None)
@@ -196,14 +227,82 @@ def _load_bom_amoc_index() -> dict[str, Geometry]:
     return index
 
 
+@lru_cache(maxsize=2048)
+def _load_bom_amoc_geometry(code: str) -> Geometry | None:
+    """Load one BoM AMOC geometry lazily from its packaged file."""
+    dataset_dir = _find_bom_amoc_dataset_dir()
+    if dataset_dir is not None and isinstance(code, str) and code:
+        for path in (dataset_dir / f'{code}.json.gz', dataset_dir / f'{code}.json'):
+            if not path.exists():
+                continue
+            payload = _load_json_path(path)
+            if isinstance(payload, dict):
+                return payload
+
+    index = _load_bom_amoc_index()
+    return index.get(code)
+
+
 def _find_bom_amoc_dataset_path() -> Path | None:
     """Return the packaged BoM AMOC dataset path when available."""
-    dataset_path = Path(__file__).resolve().parent / 'data' / _BOM_AMOC_PACKAGED_DATASET
+    dataset_path = Path(__file__).resolve().parent / 'data' / f'{_BOM_AMOC_PACKAGED_DATASET}.json.gz'
     return dataset_path if dataset_path.exists() else None
+
+
+def _find_bom_amoc_dataset_dir() -> Path | None:
+    """Return the packaged BoM AMOC dataset directory when available."""
+    dataset_dir = Path(__file__).resolve().parent / 'data' / _BOM_AMOC_PACKAGED_DATASET
+    return dataset_dir if dataset_dir.exists() else None
+
+
+@lru_cache(maxsize=4096)
+def _load_jma_area_geometry(code: str) -> Geometry | None:
+    """Load one JMA area geometry lazily from its packaged file."""
+    dataset_dir = _find_jma_area_dataset_dir()
+    if dataset_dir is None or not isinstance(code, str) or not code:
+        return None
+
+    for path in (dataset_dir / f'{code}.json.gz', dataset_dir / f'{code}.json'):
+        if not path.exists():
+            continue
+        if path.suffix == '.gz':
+            with gzip.open(path, 'rt', encoding='utf-8') as handle:
+                payload = json.load(handle)
+        else:
+            with path.open(encoding='utf-8') as handle:
+                payload = json.load(handle)
+        if not isinstance(payload, dict):
+            return None
+        geometry = payload.get('geometry') if 'geometry' in payload else payload
+        if not isinstance(geometry, dict):
+            return None
+        bbox = payload.get('bbox')
+        if isinstance(bbox, list) and len(bbox) == 4:
+            geometry = {**geometry, 'bbox': bbox}
+        return geometry
+    return None
+
+
+def _find_jma_area_dataset_dir() -> Path | None:
+    """Return the packaged JMA area dataset directory when available."""
+    dataset_dir = Path(__file__).resolve().parent / 'data' / _JMA_AREA_PACKAGED_DATASET_DIR
+    return dataset_dir if dataset_dir.exists() else None
+
+
+def _load_json_path(path: Path) -> Any:
+    """Load JSON from a plain or gzip-compressed path."""
+    if path.suffix == '.gz':
+        with gzip.open(path, 'rt', encoding='utf-8') as handle:
+            return json.load(handle)
+    with path.open(encoding='utf-8') as handle:
+        return json.load(handle)
 
 
 def _combine_geometries(geometries: list[Geometry]) -> Geometry | None:
     """Combine Polygon and MultiPolygon geometries into one geometry."""
+    if len(geometries) == 1:
+        return geometries[0]
+
     polygons: list[Any] = []
     for geometry in geometries:
         coordinates = geometry.get('coordinates')

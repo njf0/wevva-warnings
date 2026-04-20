@@ -37,4 +37,10 @@ wevva-warnings = "wevva_warnings.cli:main"
 include = ["wevva_warnings*"]
 
 [tool.setuptools.package-data]
-wevva_warnings = ["data/*.json.gz"]
+wevva_warnings = [
+    "data/*.json",
+    "data/*.json.gz",
+    "data/emma_geocodes/*.json.gz",
+    "data/bom_amoc_geocodes/*.json.gz",
+    "data/jma_area_geocodes/*.json.gz",
+]

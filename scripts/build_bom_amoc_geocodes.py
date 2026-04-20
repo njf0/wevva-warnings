@@ -22,7 +22,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-DEFAULT_OUTPUT = Path('wevva_warnings/data/bom_amoc_geocodes.json.gz')
+DEFAULT_OUTPUT = Path('wevva_warnings/data/bom_amoc_geocodes')
 DEFAULT_USER_AGENT = 'wevva-warnings-bom-builder/0.1'
 DEFAULT_PRODUCTS = ('IDM00001', 'IDM00003', 'IDM00014', 'IDM00017')
 DEFAULT_PRODUCT_URLS = {
@@ -49,7 +49,7 @@ def main() -> None:
         '--output',
         type=Path,
         default=DEFAULT_OUTPUT,
-        help='Path to write the packaged .json.gz artifact.',
+        help='Directory to write packaged per-code .json.gz artifacts into.',
     )
     parser.add_argument(
         '--precision',
@@ -96,19 +96,19 @@ def main() -> None:
             progress.advance(fetch_task)
 
         build_task = progress.add_task('Extracting AMOC geometries from shapefiles', total=len(resolved_inputs))
-        payload, summary = _build_payload(resolved_inputs, precision=args.precision, progress=progress, task_id=build_task)
-        encoded = json.dumps(payload, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
-
-        write_task = progress.add_task('Writing packaged artifact', total=None)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        with gzip.open(args.output, 'wb', compresslevel=9) as handle:
-            handle.write(encoded)
-        progress.update(write_task, completed=1, total=1)
+        summary = _build_payload(
+            resolved_inputs,
+            output_dir=args.output,
+            precision=args.precision,
+            progress=progress,
+            task_id=build_task,
+        )
 
     console.print('[bold]Inputs[/bold]:')
     for description, size in zip(input_descriptions, input_sizes, strict=False):
         console.print(f'  - {description} ({size / 1024 / 1024:.2f} MiB)')
-    console.print(f'[bold]Output[/bold]: {args.output} ({args.output.stat().st_size / 1024 / 1024:.2f} MiB)')
+    output_size = sum(path.stat().st_size for path in args.output.glob('*.json.gz')) if args.output.exists() else 0
+    console.print(f'[bold]Output[/bold]: {args.output} ({output_size / 1024 / 1024:.2f} MiB total)')
     console.print(
         '[bold]Captured[/bold]: '
         f"{summary['captured_codes']} codes from {summary['products']} products, "
@@ -116,8 +116,6 @@ def main() -> None:
     )
     if summary['sample_codes']:
         console.print(f"[bold]Sample codes[/bold]: {', '.join(summary['sample_codes'])}")
-
-
 def _download_zip(url: str) -> bytes:
     """Download one BoM shapefile ZIP."""
     request = Request(url, headers={'User-Agent': DEFAULT_USER_AGENT})
@@ -128,11 +126,12 @@ def _download_zip(url: str) -> bytes:
 def _build_payload(
     inputs: list[tuple[str, bytes]],
     *,
+    output_dir: Path,
     precision: int,
     progress: Progress,
     task_id: Any,
-) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
-    """Build the normalized BoM AMOC payload."""
+) -> dict[str, Any]:
+    """Build the fragmented BoM AMOC payload."""
     try:
         import shapefile  # type: ignore[import-not-found]
     except ImportError as exc:
@@ -144,21 +143,25 @@ def _build_payload(
             '  pip install pyshp'
         ) from exc
 
-    mapping: dict[str, dict[str, Any]] = {}
     family_counts: Counter[str] = Counter()
     sample_codes: list[str] = []
     records_seen = 0
+    captured_codes_seen: set[str] = set()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for existing in output_dir.glob('*.json.gz'):
+        existing.unlink()
     progress.update(task_id, total=len(inputs), completed=0)
     for name, payload in inputs:
         captured_codes, seen_here = _consume_zip(
-            mapping,
             name,
             payload,
+            output_dir=output_dir,
             precision=precision,
             shapefile_module=shapefile,
         )
         records_seen += seen_here
         for code in captured_codes:
+            captured_codes_seen.add(code)
             family_counts[_family_from_code(code)] += 1
             if len(sample_codes) < 8:
                 sample_codes.append(code)
@@ -166,18 +169,18 @@ def _build_payload(
     summary = {
         'products': len(inputs),
         'records_seen': records_seen,
-        'captured_codes': len(mapping),
+        'captured_codes': len(captured_codes_seen),
         'family_counts': ', '.join(f'{family}={count}' for family, count in sorted(family_counts.items())) or 'none',
         'sample_codes': sample_codes,
     }
-    return {'AMOC-AreaCode': mapping}, summary
+    return summary
 
 
 def _consume_zip(
-    mapping: dict[str, dict[str, Any]],
     name: str,
     payload: bytes,
     *,
+    output_dir: Path,
     precision: int,
     shapefile_module: Any,
 ) -> tuple[list[str], int]:
@@ -211,7 +214,9 @@ def _consume_zip(
             geometry_type = geometry.get('type')
             if geometry_type not in {'Polygon', 'MultiPolygon'}:
                 continue
-            mapping[code] = _round_nested(geometry, precision=precision)
+            normalized_geometry = _normalize_geometry(geometry, precision=precision)
+            with gzip.open(output_dir / f'{code}.json.gz', 'wt', encoding='utf-8', compresslevel=9) as handle:
+                json.dump(normalized_geometry, handle, separators=(',', ':'), ensure_ascii=False)
             captured_codes.append(code)
     return captured_codes, records_seen
 
@@ -243,6 +248,59 @@ def _round_nested(value: Any, *, precision: int) -> Any:
     if isinstance(value, dict):
         return {key: _round_nested(item, precision=precision) for key, item in value.items()}
     return value
+
+
+def _normalize_geometry(geometry: dict[str, Any], *, precision: int) -> dict[str, Any]:
+    """Round coordinates and conservatively remove duplicate vertices."""
+    geometry_type = geometry.get('type')
+    coordinates = geometry.get('coordinates')
+    if geometry_type == 'Polygon' and isinstance(coordinates, list):
+        rings = [_normalize_ring(ring, precision=precision) for ring in coordinates]
+        rings = [ring for ring in rings if ring is not None]
+        return {'type': 'Polygon', 'coordinates': rings}
+    if geometry_type == 'MultiPolygon' and isinstance(coordinates, list):
+        polygons: list[list[list[list[float]]]] = []
+        for polygon in coordinates:
+            if not isinstance(polygon, list):
+                continue
+            rings = [_normalize_ring(ring, precision=precision) for ring in polygon]
+            rings = [ring for ring in rings if ring is not None]
+            if rings:
+                polygons.append(rings)
+        return {'type': 'MultiPolygon', 'coordinates': polygons}
+    return _round_nested(geometry, precision=precision)
+
+
+def _normalize_ring(ring: Any, *, precision: int) -> list[list[float]] | None:
+    """Round one ring and collapse consecutive duplicate vertices."""
+    if not isinstance(ring, list):
+        return None
+
+    points: list[list[float]] = []
+    for point in ring:
+        if (
+            not isinstance(point, (list, tuple))
+            or len(point) < 2
+            or not isinstance(point[0], (int, float))
+            or not isinstance(point[1], (int, float))
+        ):
+            continue
+        rounded = [round(float(point[0]), precision), round(float(point[1]), precision)]
+        if not points or points[-1] != rounded:
+            points.append(rounded)
+
+    if len(points) < 3:
+        return None
+    if points[0] != points[-1]:
+        points.append(points[0][:])
+    elif len(points) >= 2 and points[-2] == points[0]:
+        points.pop(-1)
+        if points[0] != points[-1]:
+            points.append(points[0][:])
+
+    if len(points) < 4:
+        return None
+    return points
 
 
 if __name__ == '__main__':

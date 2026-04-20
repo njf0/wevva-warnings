@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
+import subprocess
 from abc import ABC, abstractmethod
 from datetime import datetime
 from importlib.metadata import PackageNotFoundError, version
@@ -225,9 +227,66 @@ def fetch_text(
         with urlopen(request, timeout=timeout) as response:
             payload = response.read()
             encoding = response.headers.get_content_charset() or 'utf-8'
-    except (HTTPError, URLError, OSError, TimeoutError) as exc:
+    except HTTPError as exc:
+        if debug:
+            logging.error('Fetch failed for %r: %s', request_url, exc)  # noqa: TRY400
+        raise BackendError(str(exc)) from exc
+    except (URLError, OSError, TimeoutError) as exc:
+        fallback_payload = _fetch_text_with_curl(
+            request_url,
+            headers=headers,
+            timeout=timeout,
+            debug=debug,
+        )
+        if fallback_payload is not None:
+            return fallback_payload
         if debug:
             logging.error('Fetch failed for %r: %s', request_url, exc)  # noqa: TRY400
         raise BackendError(str(exc)) from exc
 
     return payload.decode(encoding, errors='replace')
+
+
+def _fetch_text_with_curl(
+    url: str,
+    *,
+    headers: dict[str, str] | None,
+    timeout: float,
+    debug: bool,
+) -> str | None:
+    """Fetch text via curl when urllib networking fails."""
+    curl_path = shutil.which('curl')
+    if curl_path is None:
+        return None
+
+    command = [
+        curl_path,
+        '-fsSL',
+        '--max-time',
+        str(max(1, int(timeout))),
+        '-A',
+        DEFAULT_USER_AGENT,
+    ]
+    for key, value in (headers or {}).items():
+        command.extend(['-H', f'{key}: {value}'])
+    command.append(url)
+
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            timeout=timeout + 5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        if debug:
+            logging.error('curl fallback failed for %r: %s', url, exc)  # noqa: TRY400
+        return None
+
+    if completed.returncode != 0:
+        if debug:
+            stderr = completed.stderr.decode('utf-8', errors='replace').strip()
+            logging.error('curl fallback failed for %r: %s', url, stderr or completed.returncode)  # noqa: TRY400
+        return None
+
+    return completed.stdout.decode('utf-8', errors='replace')

@@ -130,12 +130,19 @@ def get_alerts_for_point(
             logging.info('%s.', message)
             emit_progress('source_finished', source=source.id)
 
+    deduped_alerts = _dedupe_point_alerts(alerts)
+
     if debug:
-        logging.info('Returning %s warnings', len(alerts))
-        for alert in alerts:
+        if len(deduped_alerts) != len(alerts):
+            logging.info(
+                'Deduped %s semantically identical point-query warnings.',
+                len(alerts) - len(deduped_alerts),
+            )
+        logging.info('Returning %s warnings', len(deduped_alerts))
+        for alert in deduped_alerts:
             logging.info(alert)
 
-    return alerts
+    return deduped_alerts
 
 
 def get_alerts_for_source(
@@ -221,3 +228,30 @@ def _resolved_alert_geometry(alert: Alert) -> dict[str, object] | None:
     if geometry is not None:
         alert.geometry = geometry
     return geometry
+
+
+def _dedupe_point_alerts(alerts: list[Alert]) -> list[Alert]:
+    """Collapse semantically duplicate point-query alerts.
+
+    Point queries can match multiple overlapping upstream warning regions that
+    differ only in internal identifiers while presenting identical user-facing
+    warning content. Keep source-level `id` dedupe in `get_alerts_for_source`,
+    but collapse those duplicates for point-query results.
+    """
+    deduped: list[Alert] = []
+    seen: set[tuple[object, ...]] = set()
+    for alert in alerts:
+        key = (
+            alert.source,
+            alert.headline,
+            alert.event,
+            alert.severity,
+            alert.onset.isoformat() if alert.onset else None,
+            alert.expires.isoformat() if alert.expires else None,
+            alert.description,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(alert)
+    return deduped

@@ -79,7 +79,7 @@ Useful flags:
 
 ## Source registry
 
-There are currently **151** enabled sources in the built-in registry.
+There are currently **152** enabled sources in the built-in registry.
 For the full current list, use:
 
 ```bash
@@ -95,15 +95,19 @@ Meteoalarm source data.
 - `scripts/build_emma_geocodes.py` builds a packaged EMMA geometry dataset
 - `scripts/build_emma_aliases.py` builds a packaged EMMA alias dataset
 - `scripts/build_bom_amoc_geocodes.py` builds a packaged Australian BoM AMOC geometry dataset
+- `scripts/build_jma_area_geocodes.py` builds a packaged JMA area-code geometry dataset
 
 Currently available at runtime:
 - Meteoalarm `EMMA_ID` geometry resolution
 - Meteoalarm alias resolution to EMMA geometry, including `NUTS2`, `NUTS3`, `WARNCELL`, `WARNCELLID`, `FIPS` and `CISORP`
 - Australian BoM `AMOC-AreaCode` geometry resolution for polygonal `MW`, `RC`, `ME` and `PW` code families
+- JMA `JMA Area Code` geometry resolution from official JMA GIS boundary datasets
 
 The runtime package is intended to ship only the small derived artifacts under
 `wevva_warnings/data/`. Large upstream source files are treated as build
-inputs, not packaged assets.
+inputs, not packaged assets. Geocode geometries now default to packaged
+per-code artifacts for lazy loading at runtime, while EMMA aliases are shipped
+as a small plain JSON mapping.
 
 Note that the EMMA geocode-polygon mapping is retrieved directly, but the aliases file is a Google Drive link which requires manual download. Both files are derived from the [`Meteoalarm Redistribution Hub`](https://meteoalarm.org/en/live/page/redistribution-hub#list).
 

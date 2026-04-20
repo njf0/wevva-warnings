@@ -28,6 +28,7 @@ from .igebu import IGEBUBackend
 from .indomet import INDOMETBackend
 from .inmet import INMETBackend
 from .inumet import INUMETBackend
+from .jma import JMABackend
 from .jmd import JMDBackend
 from .kazhydromet import KazhydrometBackend
 from .kma import KMABackend
@@ -109,6 +110,7 @@ __all__ = [
     'INDOMETBackend',
     'INMETBackend',
     'INUMETBackend',
+    'JMABackend',
     'JMDBackend',
     'KazhydrometBackend',
     'KMABackend',

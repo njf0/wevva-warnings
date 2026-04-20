@@ -21,7 +21,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-DEFAULT_OUTPUT = Path('wevva_warnings/data/emma_geocodes_3dp.json.gz')
+DEFAULT_OUTPUT = Path('wevva_warnings/data/emma_geocodes')
 DEFAULT_INPUT_GLOB = 'MeteoAlarm_Geocodes_*.json'
 DEFAULT_SOURCE_URL = (
     'https://gitlab.com/meteoalarm-pm-group/documents/-/raw/master/MeteoAlarm_Geocodes_2026_02_20.json?inline=false'
@@ -46,7 +46,7 @@ def main() -> None:
         nargs='?',
         type=Path,
         default=DEFAULT_OUTPUT,
-        help='Path to write the packaged .json.gz artifact.',
+        help='Directory to write packaged per-code .json.gz artifacts into.',
     )
     parser.add_argument(
         '--precision',
@@ -86,18 +86,12 @@ def main() -> None:
         progress.update(load_task, completed=1, total=1)
 
         process_task = progress.add_task('Rounding and reducing feature geometry', total=None)
-        reduced, summary = _build_reduced_payload(payload, precision=args.precision, progress=progress, task_id=process_task)
-        encoded = json.dumps(reduced, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+        summary = _build_fragmented_payload(payload, output_dir=args.output, precision=args.precision, progress=progress, task_id=process_task)
         progress.update(process_task, completed=summary['kept_features'], total=summary['total_features'])
 
-        write_task = progress.add_task('Writing packaged artifact', total=None)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        with gzip.open(args.output, 'wb', compresslevel=9) as handle:
-            handle.write(encoded)
-        progress.update(write_task, completed=1, total=1)
-
+    output_size = sum(path.stat().st_size for path in args.output.glob('*.json.gz')) if args.output.exists() else 0
     console.print(f'[bold]Input[/bold] : {input_label} ({_format_mib(input_size)})')
-    console.print(f'[bold]Output[/bold]: {args.output} ({_format_mib(args.output.stat().st_size)})')
+    console.print(f'[bold]Output[/bold]: {args.output} ({_format_mib(output_size)})')
     console.print(
         '[bold]Captured[/bold]: '
         f"{summary['kept_features']} / {summary['total_features']} features, "
@@ -121,22 +115,27 @@ def _download_source(url: str) -> bytes:
         return response.read()
 
 
-def _build_reduced_payload(
+def _build_fragmented_payload(
     payload: dict[str, Any],
     *,
+    output_dir: Path,
     precision: int,
     progress: Progress,
     task_id: TaskID,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Return a compact FeatureCollection with rounded coordinates."""
+) -> dict[str, Any]:
+    """Write one compact artifact per EMMA feature and return summary info."""
     features = payload.get('features')
     if not isinstance(features, list):
         raise SystemExit('Input payload does not contain a GeoJSON FeatureCollection "features" list.')
 
-    reduced_features: list[dict[str, Any]] = []
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for existing in output_dir.glob('*.json.gz'):
+        existing.unlink()
+
     countries: set[str] = set()
     geometry_types: Counter[str] = Counter()
     sample_codes: list[str] = []
+    kept_features = 0
 
     progress.update(task_id, total=len(features), completed=0)
     for feature in features:
@@ -149,38 +148,43 @@ def _build_reduced_payload(
             progress.advance(task_id)
             continue
 
+        code = properties.get('code')
+        if not isinstance(code, str) or not code:
+            progress.advance(task_id)
+            continue
+
         country = properties.get('country')
         if isinstance(country, str) and country:
             countries.add(country)
         geometry_type = geometry.get('type')
         if isinstance(geometry_type, str) and geometry_type:
             geometry_types[geometry_type] += 1
-        code = properties.get('code')
-        if isinstance(code, str) and code and len(sample_codes) < 5:
+        if len(sample_codes) < 5:
             sample_codes.append(code)
 
-        reduced_features.append(
-            {
-                'type': 'Feature',
-                'properties': {
-                    'code': code,
-                    'country': properties.get('country'),
-                    'name': properties.get('name'),
-                    'type': properties.get('type'),
-                },
-                'geometry': _round_nested(geometry, precision=precision),
-            }
-        )
+        reduced_feature = {
+            'type': 'Feature',
+            'properties': {
+                'code': code,
+                'country': properties.get('country'),
+                'name': properties.get('name'),
+                'type': properties.get('type'),
+            },
+            'geometry': _normalize_geometry(geometry, precision=precision),
+        }
+        with gzip.open(output_dir / f'{code}.json.gz', 'wt', encoding='utf-8', compresslevel=9) as handle:
+            json.dump(reduced_feature, handle, separators=(',', ':'), ensure_ascii=False)
+
+        kept_features += 1
         progress.advance(task_id)
 
-    summary = {
+    return {
         'total_features': len(features),
-        'kept_features': len(reduced_features),
+        'kept_features': kept_features,
         'countries': len(countries),
         'geometry_types': ', '.join(f'{name}={count}' for name, count in sorted(geometry_types.items())) or 'none',
         'sample_codes': sample_codes,
     }
-    return {'type': 'FeatureCollection', 'features': reduced_features}, summary
 
 
 def _round_nested(value: Any, *, precision: int) -> Any:
@@ -194,6 +198,57 @@ def _round_nested(value: Any, *, precision: int) -> Any:
     return value
 
 
+def _normalize_geometry(geometry: dict[str, Any], *, precision: int) -> dict[str, Any]:
+    """Round coordinates and conservatively remove duplicate vertices."""
+    geometry_type = geometry.get('type')
+    coordinates = geometry.get('coordinates')
+    if geometry_type == 'Polygon' and isinstance(coordinates, list):
+        rings = [_normalize_ring(ring, precision=precision) for ring in coordinates]
+        rings = [ring for ring in rings if ring is not None]
+        return {'type': 'Polygon', 'coordinates': rings}
+    if geometry_type == 'MultiPolygon' and isinstance(coordinates, list):
+        polygons: list[list[list[list[float]]]] = []
+        for polygon in coordinates:
+            if not isinstance(polygon, list):
+                continue
+            rings = [_normalize_ring(ring, precision=precision) for ring in polygon]
+            rings = [ring for ring in rings if ring is not None]
+            if rings:
+                polygons.append(rings)
+        return {'type': 'MultiPolygon', 'coordinates': polygons}
+    return _round_nested(geometry, precision=precision)
+
+
+def _normalize_ring(ring: Any, *, precision: int) -> list[list[float]] | None:
+    """Round one ring and collapse consecutive duplicate vertices."""
+    if not isinstance(ring, list):
+        return None
+
+    points: list[list[float]] = []
+    for point in ring:
+        if (
+            not isinstance(point, (list, tuple))
+            or len(point) < 2
+            or not isinstance(point[0], (int, float))
+            or not isinstance(point[1], (int, float))
+        ):
+            continue
+        rounded = [round(float(point[0]), precision), round(float(point[1]), precision)]
+        if not points or points[-1] != rounded:
+            points.append(rounded)
+
+    if len(points) < 3:
+        return None
+    if points[0] != points[-1]:
+        points.append(points[0][:])
+    elif len(points) >= 2 and points[-2] == points[0]:
+        points.pop(-1)
+        if points[0] != points[-1]:
+            points.append(points[0][:])
+
+    if len(points) < 4:
+        return None
+    return points
 def _format_mib(size_bytes: int) -> str:
     """Return a human-readable MiB size string."""
     return f'{size_bytes / 1024 / 1024:.2f} MiB'

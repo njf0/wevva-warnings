@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 import warnings
 
+from wevva_warnings.models import Alert
 from wevva_warnings.query import get_alerts_for_point, get_alerts_for_source
 from wevva_warnings.registry import (
     LanguageNotSupportedError,
@@ -189,6 +190,56 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0].source, 'tci_en')
         self.assertEqual(alerts[0].headline, 'Severe Thunderstorm Watch for TCI [March 19, 2026]')
+
+    def test_get_alerts_for_point_dedupes_semantically_identical_alerts(self) -> None:
+        duplicate_alerts = [
+            Alert(
+                id='dup-1',
+                source='meteoalarm_atom_estonia',
+                event='Ground frost warning',
+                headline='Ground frost warning',
+                severity='Moderate',
+                description='Ground frost, decrease soil surface temperature to 0..-3°C.',
+                onset=datetime.fromisoformat('2026-04-20T21:00:00+03:00'),
+                expires=datetime.fromisoformat('2026-04-21T09:00:00+03:00'),
+                geometry={
+                    'type': 'Polygon',
+                    'coordinates': [[[24.0, 58.0], [25.0, 58.0], [25.0, 59.0], [24.0, 59.0], [24.0, 58.0]]],
+                },
+            ),
+            Alert(
+                id='dup-2',
+                source='meteoalarm_atom_estonia',
+                event='Ground frost warning',
+                headline='Ground frost warning',
+                severity='Moderate',
+                description='Ground frost, decrease soil surface temperature to 0..-3°C.',
+                onset=datetime.fromisoformat('2026-04-20T21:00:00+03:00'),
+                expires=datetime.fromisoformat('2026-04-21T09:00:00+03:00'),
+                geometry={
+                    'type': 'Polygon',
+                    'coordinates': [[[24.0, 58.0], [25.0, 58.0], [25.0, 59.0], [24.0, 59.0], [24.0, 58.0]]],
+                },
+            ),
+        ]
+
+        class DummyBackend:
+            uses_native_point_query = False
+
+            def fetch_alerts(self, source, **kwargs):
+                del source, kwargs
+                return duplicate_alerts
+
+        dummy_source = type('SourceLike', (), {'id': 'meteoalarm_atom_estonia'})()
+
+        with (
+            patch('wevva_warnings.query.get_sources_for_country', return_value=[dummy_source]),
+            patch('wevva_warnings.query.get_backend', return_value=DummyBackend()),
+        ):
+            alerts = get_alerts_for_point(58.5, 24.5, 'EE', active_only=True)
+
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0].headline, 'Ground frost warning')
 
     def test_get_alerts_for_source_active_only_filters_future_alerts(self) -> None:
         with (

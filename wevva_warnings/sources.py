@@ -553,6 +553,16 @@ SOURCES: tuple[WarningSource, ...] = (
         provider_v2=True,
     ),
     WarningSource(
+        id='jma',
+        name='Japan Meteorological Agency Warning XML Feed',
+        backend='jma',
+        country_code='JP',
+        url='https://www.data.jma.go.jp/developer/xml/feed/extra.xml',
+        lang='ja',
+        notes='Official JMA public Atom feed for XML bulletins; first cut focuses on VPWW53 and newer weather warning/advisory products.',
+        provider_v2=True,
+    ),
+    WarningSource(
         id='met_eireann',
         name='Met Eireann CAP Feed',
         backend='met_eireann',

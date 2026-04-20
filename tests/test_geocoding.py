@@ -10,8 +10,11 @@ from wevva_warnings import geocoding
 from wevva_warnings import geometry_from_geocodes, get_alerts_for_point, get_alerts_for_source
 
 EMMA_FIXTURE_PATH = Path(__file__).resolve().parent / 'data' / 'emma_geocodes.json'
+EMMA_FRAGMENT_FIXTURE_PATH = Path(__file__).resolve().parent / 'data' / 'emma_geocodes'
 EMMA_ALIASES_FIXTURE_PATH = Path(__file__).resolve().parent / 'data' / 'emma_aliases.json'
 BOM_AMOC_FIXTURE_PATH = Path(__file__).resolve().parent / 'data' / 'bom_amoc_geocodes.json'
+BOM_AMOC_FRAGMENT_FIXTURE_PATH = Path(__file__).resolve().parent / 'data' / 'bom_amoc_geocodes'
+JMA_AREA_FIXTURE_PATH = Path(__file__).resolve().parent / 'data' / 'jma_area_geocodes'
 
 METEOALARM_FEED = """\
 <?xml version="1.0" encoding="UTF-8"?>
@@ -41,15 +44,55 @@ METEOALARM_CAP_WITHOUT_GEOMETRY = """\
 </alert>
 """
 
+JMA_FEED = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260418214050_0_VPWW53_200000.xml</id>
+    <title>長野県気象警報・注意報</title>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260418214050_0_VPWW53_200000.xml"/>
+  </entry>
+</feed>
+"""
+
+JMA_WARNING = """\
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/">
+  <Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/">
+    <Title>長野県気象警報・注意報</Title>
+    <ReportDateTime>2026-04-18T21:33:00+09:00</ReportDateTime>
+    <Headline>
+      <Text>長野県では、乾燥に注意してください。</Text>
+    </Headline>
+  </Head>
+  <Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/">
+    <Warning type="気象警報・注意報（市町村等）">
+      <Item>
+        <Kind>
+          <Name>乾燥注意報</Name>
+          <Status>発表</Status>
+        </Kind>
+        <Area>
+          <Name>長野市</Name>
+          <Code>2020100</Code>
+        </Area>
+      </Item>
+    </Warning>
+  </Body>
+</Report>
+"""
+
 
 class GeocodingTests(unittest.TestCase):
     def tearDown(self) -> None:
         geocoding._load_emma_index.cache_clear()
+        geocoding._load_emma_geometry.cache_clear()
         geocoding._load_emma_aliases.cache_clear()
         geocoding._load_bom_amoc_index.cache_clear()
+        geocoding._load_bom_amoc_geometry.cache_clear()
+        geocoding._load_jma_area_geometry.cache_clear()
 
     def test_geometry_from_geocodes_resolves_emma_geometry(self) -> None:
-        with patch('wevva_warnings.geocoding._find_emma_dataset_path', return_value=EMMA_FIXTURE_PATH):
+        with patch('wevva_warnings.geocoding._find_emma_dataset_dir', return_value=EMMA_FRAGMENT_FIXTURE_PATH):
             geometry = geometry_from_geocodes({'EMMA_ID': ['BE001']})
 
         self.assertIsNotNone(geometry)
@@ -68,7 +111,7 @@ class GeocodingTests(unittest.TestCase):
         self.assertEqual(geometry['type'], 'Polygon')
 
     def test_geometry_from_geocodes_resolves_bom_amoc_geometry(self) -> None:
-        with patch('wevva_warnings.geocoding._find_bom_amoc_dataset_path', return_value=BOM_AMOC_FIXTURE_PATH):
+        with patch('wevva_warnings.geocoding._find_bom_amoc_dataset_dir', return_value=BOM_AMOC_FRAGMENT_FIXTURE_PATH):
             geometry = geometry_from_geocodes({'AMOC-AreaCode': ['WA_MW011']})
 
         self.assertIsNotNone(geometry)
@@ -90,6 +133,15 @@ class GeocodingTests(unittest.TestCase):
         self.assertIsNotNone(geometry)
         assert geometry is not None
         self.assertEqual(geometry['type'], 'Polygon')
+
+    def test_geometry_from_geocodes_resolves_jma_area_geometry(self) -> None:
+        with patch('wevva_warnings.geocoding._find_jma_area_dataset_dir', return_value=JMA_AREA_FIXTURE_PATH):
+            geometry = geometry_from_geocodes({'JMA Area Code': ['2020100']})
+
+        self.assertIsNotNone(geometry)
+        assert geometry is not None
+        self.assertEqual(geometry['type'], 'Polygon')
+        self.assertEqual(geometry['bbox'], [138.0, 36.5, 138.6, 36.9])
 
     def test_get_alerts_for_point_uses_emma_geometry_when_alert_geometry_is_missing(self) -> None:
         def fake_fetch_text(url: str, **_: object) -> str:
@@ -251,3 +303,24 @@ class GeocodingTests(unittest.TestCase):
         self.assertEqual(matching[0].id, 'bom-amoc-demo')
         self.assertIsNotNone(matching[0].geometry)
         self.assertEqual(missing, [])
+
+    def test_get_alerts_for_point_uses_jma_area_geometry_when_alert_geometry_is_missing(self) -> None:
+        feed_url = 'https://www.data.jma.go.jp/developer/xml/feed/extra.xml'
+        warning_url = 'https://www.data.jma.go.jp/developer/xml/data/20260418214050_0_VPWW53_200000.xml'
+
+        with (
+            patch('wevva_warnings.geocoding._find_jma_area_dataset_dir', return_value=JMA_AREA_FIXTURE_PATH),
+            patch('wevva_warnings.backends._cap_feed.fetch_text', return_value=JMA_FEED) as feed_fetch,
+            patch('wevva_warnings.backends.jma.fetch_text', return_value=JMA_WARNING) as xml_fetch,
+        ):
+            matching = get_alerts_for_point(36.7, 138.3, 'JP')
+            missing = get_alerts_for_point(35.6, 139.7, 'JP')
+
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0].id, '20260418214050_0_VPWW53_200000')
+        self.assertIsNotNone(matching[0].geometry)
+        self.assertEqual(missing, [])
+        self.assertEqual(feed_fetch.call_count, 2)
+        self.assertEqual(xml_fetch.call_count, 2)
+        self.assertEqual(feed_fetch.call_args.args[0], feed_url)
+        self.assertEqual(xml_fetch.call_args.args[0], warning_url)

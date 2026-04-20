@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import gzip
 import json
 from json import JSONDecodeError
 from pathlib import Path
@@ -21,7 +20,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-DEFAULT_OUTPUT = Path('wevva_warnings/data/emma_aliases.json.gz')
+DEFAULT_OUTPUT = Path('wevva_warnings/data/emma_aliases.json')
 DEFAULT_INPUT_GLOB = 'MeteoAlarm_Geocode_Aliases*.json'
 DEFAULT_INPUT_CSV_GLOB = 'geocodes-aliases*.csv'
 DEFAULT_SOURCE_URL = 'https://drive.google.com/uc?export=download&id=1haP3_PFz9nYrEgLjCd_YvaCuMb9_5QC1'
@@ -45,7 +44,7 @@ def main() -> None:
         nargs='?',
         type=Path,
         default=DEFAULT_OUTPUT,
-        help='Path to write the packaged .json.gz artifact.',
+        help='Path to write the packaged .json artifact.',
     )
     parser.add_argument(
         '--url',
@@ -79,7 +78,6 @@ def main() -> None:
 
         normalize_task = progress.add_task('Normalizing alias mappings', total=None)
         normalized = _normalize_alias_payload(payload, progress=progress, task_id=normalize_task)
-        encoded = json.dumps(normalized, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
         normalized_count = sum(len(mapping) for mapping in normalized.values())
         progress.update(
             normalize_task,
@@ -89,8 +87,8 @@ def main() -> None:
 
         write_task = progress.add_task('Writing packaged artifact', total=None)
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        with gzip.open(args.output, 'wb', compresslevel=9) as handle:
-            handle.write(encoded)
+        with args.output.open('w', encoding='utf-8') as handle:
+            json.dump(normalized, handle, separators=(',', ':'), ensure_ascii=False)
         progress.update(write_task, completed=1, total=1)
 
     summary = _summarize_aliases(normalized)

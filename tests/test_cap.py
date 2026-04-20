@@ -105,6 +105,24 @@ PARAMETERS_CAP = """\
 
 
 class CAPParserTests(unittest.TestCase):
+    def test_point_in_geometry_uses_bbox_prefilter_when_present(self) -> None:
+        geometry = {
+            'type': 'Polygon',
+            'bbox': [10.0, 50.0, 11.0, 51.0],
+            'coordinates': [
+                [
+                    [10.0, 50.0],
+                    [11.0, 50.0],
+                    [11.0, 51.0],
+                    [10.0, 51.0],
+                    [10.0, 50.0],
+                ]
+            ],
+        }
+
+        self.assertTrue(point_in_geometry(50.5, 10.5, geometry))
+        self.assertFalse(point_in_geometry(52.0, 10.5, geometry))
+
     def test_parse_cap_alert_defaults_to_english_when_available(self) -> None:
         parsed = parse_cap_alert(MULTILINGUAL_CAP, source='fmi')
 
