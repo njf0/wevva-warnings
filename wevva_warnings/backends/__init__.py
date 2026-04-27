@@ -12,6 +12,7 @@ from .dmh_myanmar import DMHMyanmarBackend
 from .dmh_py import DMHParaguayBackend
 from .dirmet_cg import DirmetCGBackend
 from .dwd import DWDBackend
+from .ea_flood import EAFloodBackend
 from .eswatini_met import EswatiniMetBackend
 from .ethiomet import EthiometBackend
 from .fmi import FMIBackend
@@ -94,6 +95,7 @@ __all__ = [
     'DMHParaguayBackend',
     'DirmetCGBackend',
     'DWDBackend',
+    'EAFloodBackend',
     'EswatiniMetBackend',
     'EthiometBackend',
     'FMIBackend',

@@ -11,6 +11,7 @@ from wevva_warnings.backends.bahrain import BahrainBackend
 from wevva_warnings.backends.bmkg import BMKGBackend
 from wevva_warnings.backends.dirmet_cg import DirmetCGBackend
 from wevva_warnings.backends.dwd import DWDBackend
+from wevva_warnings.backends.ea_flood import EAFloodBackend
 from wevva_warnings.backends.ethiomet import EthiometBackend
 from wevva_warnings.backends.fmi import FMIBackend
 from wevva_warnings.backends.gmet import GMETBackend
@@ -727,6 +728,49 @@ KMA_FEED = """\
 </rss>
 """
 
+EA_FLOODS = {
+    'items': [
+        {
+            '@id': 'http://environment.data.gov.uk/flood-monitoring/id/floods/061FAG22GtSheff',
+            'description': 'Groundwater flooding in the Great Shefford area',
+            'severity': 'Flood alert',
+            'severityLevel': 3,
+            'message': 'Continued high groundwater levels may lead to flooding.',
+            'timeRaised': '2026-04-21T11:17:10',
+            'floodAreaID': '061FAG22GtSheff',
+            'floodArea': {
+                'label': 'Groundwater flooding in the Great Shefford area',
+                'description': 'Communities at risk of groundwater flooding in the Great Shefford area',
+                'county': 'West Berkshire',
+                'notation': '061FAG22GtSheff',
+                'riverOrSea': 'Groundwater',
+                'polygon': 'http://environment.data.gov.uk/flood-monitoring/id/floodAreas/061FAG22GtSheff/polygon',
+            },
+        }
+    ]
+}
+
+EA_FLOOD_POLYGON = {
+    'type': 'FeatureCollection',
+    'features': [
+        {
+            'type': 'Feature',
+            'geometry': {
+                'type': 'Polygon',
+                'coordinates': [
+                    [
+                        [-1.4400, 51.4950],
+                        [-1.4250, 51.4950],
+                        [-1.4250, 51.5050],
+                        [-1.4400, 51.5050],
+                        [-1.4400, 51.4950],
+                    ]
+                ],
+            },
+        }
+    ],
+}
+
 SWIC_FEED = """\
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
@@ -1415,6 +1459,32 @@ class ProviderBackendTests(unittest.TestCase):
         self.assertEqual(alerts[0].area_names, ['Ulleungdo', 'Dokdo'])
         requested_urls = [call.args[0] for call in fetch_text.call_args_list]
         self.assertNotIn('KR.W2604075_202604161200_SWA_75_EN', requested_urls)
+
+    def test_ea_flood_backend_fetches_polygon_geometry_and_filters_exactly(self) -> None:
+        backend = EAFloodBackend()
+        source = get_source('ea_flood')
+        assert source is not None
+
+        def fake_fetch_json(url: str, **_: object) -> object:
+            documents = {
+                source.url: EA_FLOODS,
+                'http://environment.data.gov.uk/flood-monitoring/id/floodAreas/061FAG22GtSheff/polygon': EA_FLOOD_POLYGON,
+            }
+            return documents[url]
+
+        with patch('wevva_warnings.backends.ea_flood.fetch_json', side_effect=fake_fetch_json):
+            matching = backend.fetch_alerts(source, lat=51.50, lon=-1.432)
+            missing = backend.fetch_alerts(source, lat=51.40, lon=-1.50)
+
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0].id, '061FAG22GtSheff')
+        self.assertEqual(matching[0].severity, 'Unknown')
+        self.assertEqual(matching[0].event, 'Flood alert')
+        self.assertEqual(matching[0].area_names, ['Groundwater flooding in the Great Shefford area', 'Communities at risk of groundwater flooding in the Great Shefford area', 'West Berkshire'])
+        self.assertEqual(matching[0].geocodes, {'EA Flood Area ID': ['061FAG22GtSheff']})
+        self.assertEqual(matching[0].parameters['EA Severity Level'], ['3'])
+        self.assertIsNotNone(matching[0].geometry)
+        self.assertEqual(missing, [])
 
     def test_meteo_ke_backend_fetches_direct_cap_documents(self) -> None:
         backend = MeteoKEBackend()

@@ -1513,6 +1513,16 @@ SOURCES: tuple[WarningSource, ...] = (
         provider_v2=True,
     ),
     WarningSource(
+        id='ea_flood',
+        name='Environment Agency Flood Monitoring API',
+        backend='ea_flood',
+        country_code='GB',
+        url='https://environment.data.gov.uk/flood-monitoring/id/floods',
+        lang='en',
+        notes='Official Environment Agency flood warnings API for England with linked flood-area polygon geometry.',
+        provider_v2=True,
+    ),
+    WarningSource(
         id='meteoalarm_atom_ukraine',
         name='Meteoalarm Atom Feed (Ukraine)',
         backend='meteoalarm_atom',

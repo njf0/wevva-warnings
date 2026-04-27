@@ -79,7 +79,7 @@ Useful flags:
 
 ## Source registry
 
-There are currently **152** enabled sources in the built-in registry.
+There are currently **153** enabled sources in the built-in registry.
 For the full current list, use:
 
 ```bash
