@@ -30,11 +30,14 @@ from .indomet import INDOMETBackend
 from .inmet import INMETBackend
 from .inumet import INUMETBackend
 from .jma import JMABackend
+from .jma_tropical import JMATropicalBackend
 from .jmd import JMDBackend
 from .kazhydromet import KazhydrometBackend
 from .kma import KMABackend
 from .kyrgyzhydromet import KyrgyzhydrometBackend
 from .namem import NAMEMBackend
+from .nhc_gis import NHCGISBackend
+from .noaa_tsunami import NOAATsunamiBackend
 from .meteo_cw import MeteoCWBackend
 from .meteocomores import MeteoComoresBackend
 from .qatar_caa import QatarCAABackend
@@ -113,11 +116,14 @@ __all__ = [
     'INMETBackend',
     'INUMETBackend',
     'JMABackend',
+    'JMATropicalBackend',
     'JMDBackend',
     'KazhydrometBackend',
     'KMABackend',
     'KyrgyzhydrometBackend',
     'NAMEMBackend',
+    'NHCGISBackend',
+    'NOAATsunamiBackend',
     'MeteoCWBackend',
     'MeteoComoresBackend',
     'QatarCAABackend',

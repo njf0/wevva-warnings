@@ -7,13 +7,19 @@ import unittest
 from unittest.mock import patch
 import warnings
 
-from wevva_warnings.models import Alert
-from wevva_warnings.query import get_alerts_for_point, get_alerts_for_source
+from wevva_warnings.models import Alert, TropicalSystem
+from wevva_warnings.query import (
+    get_alerts_for_point,
+    get_alerts_for_source,
+    get_tropical_systems_for_source,
+    get_tropical_systems_near,
+)
 from wevva_warnings.registry import (
     LanguageNotSupportedError,
     UnsupportedCountryError,
     get_sources_for_country,
 )
+from wevva_warnings.sources import WarningSource
 
 FMI_FEED = """\
 <?xml version="1.0" encoding="UTF-8"?>
@@ -171,6 +177,9 @@ class QueryTests(unittest.TestCase):
 
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0].source, 'fmi_en')
+        self.assertIsNotNone(alerts[0].source_info)
+        assert alerts[0].source_info is not None
+        self.assertEqual(alerts[0].source_info.id, 'fmi_en')
         self.assertEqual(alerts[0].headline, 'English headline')
         self.assertEqual(len(caught), 1)
 
@@ -189,6 +198,9 @@ class QueryTests(unittest.TestCase):
 
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0].source, 'tci_en')
+        self.assertIsNotNone(alerts[0].source_info)
+        assert alerts[0].source_info is not None
+        self.assertEqual(alerts[0].source_info.id, 'tci_en')
         self.assertEqual(alerts[0].headline, 'Severe Thunderstorm Watch for TCI [March 19, 2026]')
 
     def test_get_alerts_for_point_dedupes_semantically_identical_alerts(self) -> None:
@@ -236,7 +248,7 @@ class QueryTests(unittest.TestCase):
             patch('wevva_warnings.query.get_sources_for_country', return_value=[dummy_source]),
             patch('wevva_warnings.query.get_backend', return_value=DummyBackend()),
         ):
-            alerts = get_alerts_for_point(58.5, 24.5, 'EE', active_only=True)
+            alerts = get_alerts_for_point(58.5, 24.5, 'EE')
 
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0].headline, 'Ground frost warning')
@@ -256,3 +268,115 @@ class QueryTests(unittest.TestCase):
 
     def test_get_alerts_for_source_returns_empty_for_unknown_source(self) -> None:
         self.assertEqual(get_alerts_for_source('missing'), [])
+
+    def test_get_tropical_systems_for_source_returns_tropical_systems(self) -> None:
+        system = TropicalSystem(
+            id='al012026',
+            source='nhc_gis_atlantic',
+            classification='Tropical Storm',
+            name='ALPHA',
+            headline='...ALPHA MOVING NORTHWEST...',
+        )
+
+        class DummyBackend:
+            def fetch_tropical_systems(self, source, *, debug=False):
+                del source, debug
+                return [system]
+
+        source = WarningSource(
+            id='nhc_gis_atlantic',
+            name='NHC',
+            backend='nhc_gis',
+            country_code=None,
+            url='https://www.nhc.noaa.gov/gis-at.xml',
+            lang='en',
+            kind='tropical_system',
+        )
+
+        with (
+            patch('wevva_warnings.query.get_source', return_value=source),
+            patch('wevva_warnings.query.get_backend', return_value=DummyBackend()),
+        ):
+            systems = get_tropical_systems_for_source('nhc_gis_atlantic', debug=True)
+
+        self.assertEqual(systems, [system])
+        self.assertIs(systems[0].source_info, source)
+
+    def test_get_tropical_systems_for_source_ignores_alert_sources(self) -> None:
+        source = WarningSource(
+            id='nws',
+            name='NWS',
+            backend='nws',
+            country_code='US',
+            url='https://api.weather.gov/alerts/active',
+            lang='en',
+        )
+
+        with patch('wevva_warnings.query.get_source', return_value=source):
+            systems = get_tropical_systems_for_source('nws')
+
+        self.assertEqual(systems, [])
+
+    def test_get_tropical_systems_near_matches_centers_and_polygonal_geometries(self) -> None:
+        systems = [
+            TropicalSystem(
+                id='near-center',
+                source='nhc_gis_atlantic',
+                classification='Tropical Storm',
+                name='ALPHA',
+                headline='Near center',
+                center_lat=25.0,
+                center_lon=-70.0,
+            ),
+            TropicalSystem(
+                id='inside-cone',
+                source='nhc_gis_atlantic',
+                classification='Tropical Storm',
+                name='BETA',
+                headline='Inside cone',
+                geometries={
+                    'cone': {
+                        'type': 'Polygon',
+                        'coordinates': [[[-71.0, 24.0], [-69.0, 24.0], [-69.0, 26.0], [-71.0, 26.0], [-71.0, 24.0]]],
+                    }
+                },
+            ),
+            TropicalSystem(
+                id='too-far',
+                source='nhc_gis_atlantic',
+                classification='Tropical Storm',
+                name='GAMMA',
+                headline='Too far',
+                center_lat=40.0,
+                center_lon=-90.0,
+            ),
+        ]
+
+        class DummyBackend:
+            def fetch_tropical_systems(self, source, **kwargs):
+                del source, kwargs
+                return systems
+
+        source = WarningSource(
+            id='nhc_gis_atlantic',
+            name='NHC',
+            backend='nhc_gis',
+            country_code=None,
+            url='https://www.nhc.noaa.gov/gis-at.xml',
+            lang='en',
+            kind='tropical_system',
+        )
+
+        with (
+            patch('wevva_warnings.query.list_tropical_sources', return_value=[source]),
+            patch('wevva_warnings.query.get_backend', return_value=DummyBackend()),
+        ):
+            matches = get_tropical_systems_near(25.0, -70.5, radius_km=100)
+
+        self.assertEqual([system.id for system in matches], ['near-center', 'inside-cone'])
+        self.assertIs(matches[0].source_info, source)
+        self.assertIs(matches[1].source_info, source)
+
+    def test_get_tropical_systems_near_rejects_negative_radius(self) -> None:
+        with self.assertRaises(ValueError):
+            get_tropical_systems_near(25.0, -70.0, radius_km=-1)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Iterator, TypeVar
 
 import typer
 from rich.console import Console
@@ -17,18 +17,25 @@ from rich.table import Table
 from rich.text import Text
 
 from ._debug import bind_progress_callback
-from .models import Alert
-from .query import get_alerts_for_point, get_alerts_for_source
+from .models import Alert, TropicalSystem
+from .query import (
+    get_alerts_for_point,
+    get_alerts_for_source,
+    get_tropical_systems_for_source,
+    get_tropical_systems_near,
+)
 from .registry import UnsupportedCountryError, get_source, list_sources
 from .sources import WarningSource
 
 app = typer.Typer(
     add_completion=False,
-    help='Retrieve official weather warnings and inspect built-in sources.',
+    help='Retrieve official weather warnings and tropical-system products from built-in sources.',
     no_args_is_help=True,
     pretty_exceptions_enable=False,
 )
 console = Console()
+_VALID_SOURCE_KINDS = {'alert', 'tropical_system'}
+_T = TypeVar('_T')
 
 
 @app.command(context_settings={'ignore_unknown_options': True})
@@ -52,9 +59,20 @@ def point(
 
 
 @app.command()
-def sources() -> None:
+def sources(
+    kind: str | None = typer.Option(
+        None,
+        '--kind',
+        help='Optional source kind filter: alert or tropical_system.',
+    ),
+) -> None:
     """List built-in warning sources."""
-    console.print(_render_sources_table(list_sources()))
+    normalized_kind = _normalize_source_kind(kind)
+    if kind is not None and normalized_kind is None:
+        typer.secho("Source kind must be 'alert' or 'tropical_system'.", err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=2)
+
+    console.print(_render_sources_table(list_sources(kind=normalized_kind)))
 
 
 @app.command()
@@ -68,6 +86,44 @@ def source(
     _render_source_query(
         source_id,
         active_only=active_only,
+        formatted=formatted,
+        debug=debug,
+    )
+
+
+@app.command('tropical-source')
+def tropical_source(
+    source_id: str = typer.Argument(..., help='Built-in tropical-system source identifier to query.'),
+    formatted: bool = typer.Option(False, '--formatted', help='Render tropical systems as a table instead of pretty-printed objects.'),
+    debug: bool = typer.Option(False, '--debug', help='Show more progress information while fetching tropical systems.'),
+) -> None:
+    """Retrieve tropical systems from one source."""
+    _render_tropical_source_query(
+        source_id,
+        formatted=formatted,
+        debug=debug,
+    )
+
+
+@app.command('tropical-near', context_settings={'ignore_unknown_options': True})
+def tropical_near(
+    lat: float = typer.Argument(..., help='Latitude in decimal degrees.'),
+    lon: float = typer.Argument(..., help='Longitude in decimal degrees.'),
+    radius_km: float = typer.Option(1000.0, '--radius-km', help='Maximum center distance in kilometres.'),
+    source_ids: list[str] | None = typer.Option(
+        None,
+        '--source',
+        help='Optional tropical-system source id. Can be supplied more than once.',
+    ),
+    formatted: bool = typer.Option(False, '--formatted', help='Render tropical systems as a table instead of pretty-printed objects.'),
+    debug: bool = typer.Option(False, '--debug', help='Show more progress information while fetching tropical systems.'),
+) -> None:
+    """Retrieve tropical systems near one point."""
+    _render_tropical_near_query(
+        lat,
+        lon,
+        radius_km=radius_km,
+        source_ids=source_ids,
         formatted=formatted,
         debug=debug,
     )
@@ -182,6 +238,82 @@ def _render_source_query(
         render_console.print(_render_alert_object(alert))
 
 
+def _render_tropical_source_query(
+    source_id: str,
+    *,
+    formatted: bool,
+    debug: bool,
+) -> None:
+    """Run the tropical-system source query flow and render the result."""
+    source = get_source(source_id)
+    if source is None:
+        typer.secho(f'No source is registered with id {source_id!r}.', err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=2)
+    if source.kind != 'tropical_system':
+        typer.secho(
+            f"Source {source_id!r} is an alert source, not a tropical-system source.",
+            err=True,
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(code=2)
+
+    render_console, systems = _run_with_optional_debug(
+        lambda debug_enabled: get_tropical_systems_for_source(
+            source_id,
+            debug=debug_enabled,
+        ),
+        debug=debug,
+    )
+
+    if not systems:
+        render_console.print('[bold yellow]No tropical systems.[/bold yellow]')
+        return
+
+    if formatted:
+        render_console.print(_render_tropical_systems_table(systems))
+        return
+
+    for system in systems:
+        render_console.print(_render_tropical_system_object(system))
+
+
+def _render_tropical_near_query(
+    lat: float,
+    lon: float,
+    *,
+    radius_km: float,
+    source_ids: list[str] | None,
+    formatted: bool,
+    debug: bool,
+) -> None:
+    """Run the tropical-system proximity query flow and render the result."""
+    try:
+        render_console, systems = _run_with_optional_debug(
+            lambda debug_enabled: get_tropical_systems_near(
+                lat,
+                lon,
+                radius_km=radius_km,
+                source_ids=source_ids,
+                debug=debug_enabled,
+            ),
+            debug=debug,
+        )
+    except ValueError as exc:
+        typer.secho(str(exc), err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=2) from exc
+
+    if not systems:
+        render_console.print('[bold yellow]No tropical systems.[/bold yellow]')
+        return
+
+    if formatted:
+        render_console.print(_render_tropical_systems_table(systems))
+        return
+
+    for system in systems:
+        render_console.print(_render_tropical_system_object(system))
+
+
 def main() -> None:
     """Run the CLI application.
 
@@ -195,10 +327,10 @@ def main() -> None:
 
 
 def _run_with_optional_debug(
-    fetch: Callable[[bool], list[Alert]],
+    fetch: Callable[[bool], list[_T]],
     *,
     debug: bool,
-) -> tuple[Console, list[Alert]]:
+) -> tuple[Console, list[_T]]:
     """Run a query function with optional debug output.
 
     Parameters
@@ -210,16 +342,16 @@ def _run_with_optional_debug(
 
     Returns
     -------
-    tuple[Console, list[Alert]]
-        Console to render with and alerts returned by the query.
+    tuple[Console, list[_T]]
+        Console to render with and results returned by the query.
 
     """
     if not debug:
         return console, fetch(False)
 
     with _debug_session() as debug_console:
-        alerts = fetch(True)
-    return debug_console, alerts
+        results = fetch(True)
+    return debug_console, results
 
 
 @contextmanager
@@ -429,9 +561,9 @@ def _render_sources_table(sources: list[WarningSource]) -> Table:
     """
     table = Table(title=f'Registered Sources ({len(sources)})', expand=True, show_lines=True)
     table.add_column('ID', style='bold cyan', no_wrap=True)
+    table.add_column('Kind', style='bright_magenta', no_wrap=True)
     table.add_column('Name', style='bold', overflow='fold')
     table.add_column('Backend', style='magenta', no_wrap=True)
-    table.add_column('V2', style='green', no_wrap=True)
     table.add_column('Country', style='green', no_wrap=True)
     table.add_column('URL', style='blue', overflow='fold')
     table.add_column('Lang', style='yellow', no_wrap=True)
@@ -440,9 +572,9 @@ def _render_sources_table(sources: list[WarningSource]) -> Table:
     for source in sources:
         table.add_row(
             source.id,
+            source.kind,
             source.name,
             source.backend,
-            'yes' if source.provider_v2 else '',
             source.country_code or '',
             source.url or '',
             source.lang or '',
@@ -472,6 +604,73 @@ def _render_alert_object(alert: Alert) -> Panel:
         expand=True,
         border_style='blue',
     )
+
+
+def _render_tropical_systems_table(systems: list[TropicalSystem]) -> Table:
+    """Render tropical systems as a Rich table."""
+    table = Table(expand=True, show_lines=True)
+    table.add_column('Headline', style='bold', ratio=2, overflow='fold')
+    table.add_column('Details', ratio=4, overflow='fold')
+
+    for system in systems:
+        details = Text()
+        details.append('Classification: ', style='bold')
+        details.append(system.classification)
+        details.append('\n')
+        details.append('Name: ', style='bold')
+        details.append(system.name)
+        if system.basin:
+            details.append('\n')
+            details.append('Basin: ', style='bold')
+            details.append(system.basin)
+        if system.issued_at is not None:
+            details.append('\n')
+            details.append('Issued: ', style='bold')
+            details.append(system.issued_at.isoformat())
+        if system.center_lat is not None and system.center_lon is not None:
+            details.append('\n')
+            details.append('Center: ', style='bold')
+            details.append(f'{system.center_lat:.2f}, {system.center_lon:.2f}')
+        if system.max_wind:
+            details.append('\n')
+            details.append('Max wind: ', style='bold')
+            details.append(system.max_wind)
+        if system.min_pressure:
+            details.append('\n')
+            details.append('Pressure: ', style='bold')
+            details.append(system.min_pressure)
+        if system.geometries:
+            details.append('\n')
+            details.append('Geometries: ', style='bold')
+            details.append(', '.join(sorted(system.geometries)))
+        if system.summary:
+            details.append('\n')
+            details.append('Summary: ', style='bold')
+            details.append(system.summary)
+        table.add_row(Text(system.headline, style='bold'), details)
+
+    return table
+
+
+def _render_tropical_system_object(system: TropicalSystem) -> Panel:
+    """Render one tropical system as a compact Rich object preview."""
+    return Panel(
+        Pretty(system, expand_all=True, indent_guides=True),
+        title=f'Tropical System {system.id}',
+        expand=True,
+        border_style='magenta',
+    )
+
+
+def _normalize_source_kind(kind: str | None) -> str | None:
+    """Return a normalized source kind if valid."""
+    if kind is None:
+        return None
+
+    normalized = kind.strip().lower().replace('-', '_')
+    if normalized not in _VALID_SOURCE_KINDS:
+        return None
+    return normalized
 
 
 def _severity_style(severity: str) -> str:

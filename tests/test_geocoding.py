@@ -255,6 +255,9 @@ class GeocodingTests(unittest.TestCase):
 
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0].id, 'romania-alias-demo')
+        self.assertIsNotNone(alerts[0].source_info)
+        assert alerts[0].source_info is not None
+        self.assertEqual(alerts[0].source_info.id, 'meteoalarm_atom_romania')
         self.assertIsNotNone(alerts[0].geometry)
 
     def test_get_alerts_for_point_uses_bom_amoc_geometry_when_cap_geometry_is_missing(self) -> None:

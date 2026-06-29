@@ -17,6 +17,7 @@ from urllib.request import Request, urlopen
 from ..models import Alert
 
 if TYPE_CHECKING:
+    from ..models import TropicalSystem
     from ..sources import WarningSource
 
 DEFAULT_TIMEOUT = 180
@@ -69,6 +70,23 @@ class WarningBackend(ABC):
             Alerts returned by the backend for the requested source.
 
         """
+
+    def fetch_tropical_systems(
+        self,
+        source: WarningSource,
+        *,
+        lat: float | None = None,
+        lon: float | None = None,
+        lang: str | None = None,
+        debug: bool = False,
+    ) -> list[TropicalSystem]:
+        """Return tropical systems for a source.
+
+        Backends that do not publish storm-centric tropical system products can
+        keep the default empty implementation.
+        """
+        del source, lat, lon, lang, debug
+        return []
 
     @staticmethod
     def text_or_none(value: Any) -> str | None:
@@ -247,6 +265,46 @@ def fetch_text(
     return payload.decode(encoding, errors='replace')
 
 
+def fetch_bytes(
+    url: str,
+    *,
+    params: dict[str, object] | None = None,
+    headers: dict[str, str] | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    debug: bool = False,
+) -> bytes:
+    """Fetch a binary response."""
+    request_url = url
+    if params:
+        query = urlencode({key: str(value) for key, value in params.items()})
+        separator = '&' if '?' in request_url else '?'
+        request_url = f'{request_url}{separator}{query}'
+
+    request = Request(
+        request_url,
+        headers={'User-Agent': DEFAULT_USER_AGENT, **(headers or {})},
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            return response.read()
+    except HTTPError as exc:
+        if debug:
+            logging.error('Fetch failed for %r: %s', request_url, exc)  # noqa: TRY400
+        raise BackendError(str(exc)) from exc
+    except (URLError, OSError, TimeoutError) as exc:
+        fallback_payload = _fetch_bytes_with_curl(
+            request_url,
+            headers=headers,
+            timeout=timeout,
+            debug=debug,
+        )
+        if fallback_payload is not None:
+            return fallback_payload
+        if debug:
+            logging.error('Fetch failed for %r: %s', request_url, exc)  # noqa: TRY400
+        raise BackendError(str(exc)) from exc
+
+
 def _fetch_text_with_curl(
     url: str,
     *,
@@ -290,3 +348,48 @@ def _fetch_text_with_curl(
         return None
 
     return completed.stdout.decode('utf-8', errors='replace')
+
+
+def _fetch_bytes_with_curl(
+    url: str,
+    *,
+    headers: dict[str, str] | None,
+    timeout: float,
+    debug: bool,
+) -> bytes | None:
+    """Fetch bytes via curl when urllib networking fails."""
+    curl_path = shutil.which('curl')
+    if curl_path is None:
+        return None
+
+    command = [
+        curl_path,
+        '-fsSL',
+        '--max-time',
+        str(max(1, int(timeout))),
+        '-A',
+        DEFAULT_USER_AGENT,
+    ]
+    for key, value in (headers or {}).items():
+        command.extend(['-H', f'{key}: {value}'])
+    command.append(url)
+
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            timeout=timeout + 5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        if debug:
+            logging.error('curl fallback failed for %r: %s', url, exc)  # noqa: TRY400
+        return None
+
+    if completed.returncode != 0:
+        if debug:
+            stderr = completed.stderr.decode('utf-8', errors='replace').strip()
+            logging.error('curl fallback failed for %r: %s', url, stderr or completed.returncode)  # noqa: TRY400
+        return None
+
+    return completed.stdout

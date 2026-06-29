@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import logging
+import math
 import warnings
 from datetime import UTC, datetime
 
 from ._debug import emit_progress
 from .geocoding import resolve_alert_geometry
 from .geometry import point_in_geometry
-from .models import Alert
-from .registry import LanguageNotSupportedError, get_backend, get_source, get_sources_for_country
+from .models import Alert, TropicalSystem
+from .registry import LanguageNotSupportedError, get_backend, get_source, get_sources_for_country, list_tropical_sources
+from .sources import WarningSource
 
 
 def get_alerts_for_point(
@@ -89,6 +91,7 @@ def get_alerts_for_point(
             logging.info('Using provider %r via %s()', source.id, backend.__class__.__name__)
 
         source_alerts = backend.fetch_alerts(source, lat=lat, lon=lon, lang=selected_lang, debug=debug)
+        _attach_alert_source_info(source_alerts, source)
         matched_count = 0
         missing_geometry = 0
         inactive_skipped = 0
@@ -181,6 +184,7 @@ def get_alerts_for_source(
         logging.info('Using provider %r via %s()', source.id, backend.__class__.__name__)
 
     alerts = backend.fetch_alerts(source, debug=debug)
+    _attach_alert_source_info(alerts, source)
     now = _utc_now() if active_only else None
     deduped: list[Alert] = []
     seen: set[tuple[str, str]] = set()
@@ -208,6 +212,95 @@ def get_alerts_for_source(
     return deduped
 
 
+def get_tropical_systems_for_source(
+    source_id: str,
+    *,
+    debug: bool = False,
+) -> list[TropicalSystem]:
+    """Return tropical systems from one tropical-system source."""
+    source = get_source(source_id)
+    if source is None or source.kind != 'tropical_system':
+        return []
+
+    backend = get_backend(source)
+    if backend is None:
+        return []
+
+    if debug:
+        logging.info('Using tropical-system provider %r via %s()', source.id, backend.__class__.__name__)
+
+    systems = backend.fetch_tropical_systems(source, debug=debug)
+    _attach_tropical_source_info(systems, source)
+
+    if debug:
+        logging.info('Provider %r is returning %s tropical systems.', source.id, len(systems))
+        for system in systems:
+            logging.info(system)
+
+    return systems
+
+
+def get_tropical_systems_near(
+    lat: float,
+    lon: float,
+    *,
+    radius_km: float = 1000.0,
+    source_ids: list[str] | None = None,
+    debug: bool = False,
+) -> list[TropicalSystem]:
+    """Return tropical systems near one point.
+
+    A system matches when its center is within ``radius_km`` of the point, or
+    when the point lies inside one of the system's polygonal geometry layers
+    such as a cone or watch/warning area.
+    """
+    if radius_km < 0:
+        raise ValueError('radius_km must be non-negative.')
+
+    sources = _tropical_sources_for_query(source_ids)
+    if debug:
+        logging.info(
+            'Looking up tropical systems near (%s, %s) within %.1f km.',
+            f'{lat:.4f}',
+            f'{lon:.4f}',
+            radius_km,
+        )
+        logging.info('Available tropical providers: %s', [source.id for source in sources])
+
+    matches: list[TropicalSystem] = []
+    seen: set[tuple[str, str]] = set()
+    for source in sources:
+        backend = get_backend(source)
+        if backend is None:
+            continue
+
+        if debug:
+            logging.info('Using tropical-system provider %r via %s()', source.id, backend.__class__.__name__)
+
+        systems = backend.fetch_tropical_systems(source, lat=lat, lon=lon, debug=debug)
+        _attach_tropical_source_info(systems, source)
+        matched_count = 0
+        for system in systems:
+            if not _tropical_system_matches_point(system, lat=lat, lon=lon, radius_km=radius_km):
+                continue
+            matched_count += 1
+            key = (system.source, system.id)
+            if key in seen:
+                continue
+            seen.add(key)
+            matches.append(system)
+
+        if debug:
+            logging.info('Provider %r matched %s of %s tropical systems.', source.id, matched_count, len(systems))
+
+    if debug:
+        logging.info('Returning %s tropical systems.', len(matches))
+        for system in matches:
+            logging.info(system)
+
+    return matches
+
+
 def _utc_now() -> datetime:
     """Return the current UTC time.
 
@@ -228,6 +321,66 @@ def _resolved_alert_geometry(alert: Alert) -> dict[str, object] | None:
     if geometry is not None:
         alert.geometry = geometry
     return geometry
+
+
+def _attach_alert_source_info(alerts: list[Alert], source: WarningSource) -> None:
+    """Attach source metadata to alerts returned through the public query API."""
+    for alert in alerts:
+        alert.source_info = source
+
+
+def _attach_tropical_source_info(systems: list[TropicalSystem], source: WarningSource) -> None:
+    """Attach source metadata to tropical systems returned through the public query API."""
+    for system in systems:
+        system.source_info = source
+
+
+def _tropical_sources_for_query(source_ids: list[str] | None) -> list[WarningSource]:
+    if source_ids is None:
+        return list_tropical_sources()
+
+    sources: list[WarningSource] = []
+    seen: set[str] = set()
+    for source_id in source_ids:
+        source = get_source(source_id)
+        if source is None or source.kind != 'tropical_system' or source.id in seen:
+            continue
+        seen.add(source.id)
+        sources.append(source)
+    return sources
+
+
+def _tropical_system_matches_point(
+    system: TropicalSystem,
+    *,
+    lat: float,
+    lon: float,
+    radius_km: float,
+) -> bool:
+    if system.center_lat is not None and system.center_lon is not None:
+        if _haversine_km(lat, lon, system.center_lat, system.center_lon) <= radius_km:
+            return True
+
+    for geometry in system.geometries.values():
+        if point_in_geometry(lat, lon, geometry):
+            return True
+
+    return False
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Return great-circle distance between two WGS84 points."""
+    radius = 6371.0088
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+
+    a = (
+        math.sin(delta_phi / 2) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2) ** 2
+    )
+    return radius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
 def _dedupe_point_alerts(alerts: list[Alert]) -> list[Alert]:

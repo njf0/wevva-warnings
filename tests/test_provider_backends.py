@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import io
 import unittest
 from unittest.mock import patch
+import zipfile
 
 from wevva_warnings.backends.aemet import AEMETBackend
 from wevva_warnings.backends.anmeteo import ANMETEOBackend
@@ -21,6 +23,7 @@ from wevva_warnings.backends.igebu import IGEBUBackend
 from wevva_warnings.backends.indomet import INDOMETBackend
 from wevva_warnings.backends.inumet import INUMETBackend
 from wevva_warnings.backends.jma import JMABackend
+from wevva_warnings.backends.jma_tropical import JMATropicalBackend
 from wevva_warnings.backends.kazhydromet import KazhydrometBackend
 from wevva_warnings.backends.kma import KMABackend
 from wevva_warnings.backends.kyrgyzhydromet import KyrgyzhydrometBackend
@@ -45,8 +48,10 @@ from wevva_warnings.backends.meteotogo import MeteoTogoBackend
 from wevva_warnings.backends.metmalawi import MetMalawiBackend
 from wevva_warnings.backends.mms import MMSBackend
 from wevva_warnings.backends.namem import NAMEMBackend
+from wevva_warnings.backends.nhc_gis import NHCGISBackend
 from wevva_warnings.backends.nimet import NiMetBackend
 from wevva_warnings.backends.nve import NVEBackend
+from wevva_warnings.backends.noaa_tsunami import NOAATsunamiBackend
 from wevva_warnings.backends.saint_lucia import SaintLuciaBackend
 from wevva_warnings.backends.smn import SMNBackend
 from wevva_warnings.backends.slmet import SLMETBackend
@@ -728,6 +733,156 @@ KMA_FEED = """\
 </rss>
 """
 
+NTWC_ATOM_FEED = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Tsunami Information Statement Number 1</title>
+  <entry>
+    <title>65 miles SE of Dutch Harbor, Alaska</title>
+    <id>urn:uuid:082144b1-5213-4f5e-b038-217950163ee1</id>
+    <link
+      rel="related"
+      title="CapXML document"
+      href="https://www.tsunami.gov/events/PAAQ/2026/04/25/te1ihx/1/WEAK53/PAAQCAP.xml"
+      type="application/cap+xml"
+    />
+    <link
+      rel="alternate"
+      title="Bulletin"
+      href="https://www.tsunami.gov/events/PAAQ/2026/04/25/te1ihx/1/WEAK53/WEAK53.txt"
+      type="text/plain"
+    />
+  </entry>
+</feed>
+"""
+
+PTWC_CAP = """\
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>PHEB-3-26110000</identifier>
+  <info>
+    <language>en-US</language>
+    <event>Tsunami Warning</event>
+    <headline>This is a Tsunami Warning.</headline>
+    <severity>Severe</severity>
+    <urgency>Immediate</urgency>
+    <certainty>Observed</certainty>
+    <description>Tsunami waves reaching one to three feet above the tide level are possible.</description>
+    <area>
+      <areaDesc>Hawaii</areaDesc>
+      <circle>20.0,-156.0 300.0</circle>
+    </area>
+  </info>
+</alert>
+"""
+
+NHC_GIS_FEED = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:nhc="https://www.nhc.noaa.gov">
+  <channel>
+    <title>NHC Atlantic</title>
+    <item>
+      <title>Summary - Tropical Storm ALPHA (AL012026/al012026)</title>
+      <link>https://www.nhc.noaa.gov/text/MIATCPAT1.shtml</link>
+      <guid isPermaLink="false">summary-al012026-202606011500</guid>
+      <nhc:Cyclone>
+        <nhc:center>25.0, -70.0</nhc:center>
+        <nhc:type>Tropical Storm</nhc:type>
+        <nhc:name>ALPHA</nhc:name>
+        <nhc:wallet>AL012026</nhc:wallet>
+        <nhc:atcf>al012026</nhc:atcf>
+        <nhc:datetime>2026-06-01T15:00:00+00:00</nhc:datetime>
+        <nhc:movement>NW OR 315 DEGREES AT 10 KT</nhc:movement>
+        <nhc:pressure>1002 MB</nhc:pressure>
+        <nhc:headline>...ALPHA MOVING NORTHWEST OVER THE ATLANTIC...</nhc:headline>
+      </nhc:Cyclone>
+    </item>
+    <item>
+      <title>Advisory #1 Forecast Track [kmz] - Tropical Storm ALPHA (AL012026/al012026)</title>
+      <link>https://www.nhc.noaa.gov/gis/AL012026_TRACK.kmz</link>
+      <guid isPermaLink="false">gis-track-kml-al012026-1-202606011500</guid>
+    </item>
+    <item>
+      <title>Advisory #1 Cone of Uncertainty [kmz] - Tropical Storm ALPHA (AL012026/al012026)</title>
+      <link>https://www.nhc.noaa.gov/gis/AL012026_CONE.kmz</link>
+      <guid isPermaLink="false">gis-cone-kml-al012026-1-202606011500</guid>
+    </item>
+    <item>
+      <title>Advisory #1 Watches/Warnings [kmz] - Tropical Storm ALPHA (AL012026/al012026)</title>
+      <link>https://www.nhc.noaa.gov/gis/AL012026_WW.kmz</link>
+      <guid isPermaLink="false">gis-ww-kml-al012026-1-202606011500</guid>
+    </item>
+  </channel>
+</rss>
+"""
+
+
+def _kmz_bytes(kml: str) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('doc.kml', kml)
+    return buffer.getvalue()
+
+
+NHC_TRACK_KMZ = _kmz_bytes(
+    """\
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <Placemark>
+      <name>Forecast Track</name>
+      <LineString>
+        <coordinates>-70.0,25.0,0 -71.0,26.0,0 -72.0,27.0,0</coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>
+"""
+)
+
+NHC_CONE_KMZ = _kmz_bytes(
+    """\
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <Placemark>
+      <name>Cone</name>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              -72.0,24.0,0 -68.0,24.0,0 -68.0,28.0,0 -72.0,28.0,0 -72.0,24.0,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  </Document>
+</kml>
+"""
+)
+
+NHC_WW_KMZ = _kmz_bytes(
+    """\
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <Placemark>
+      <name>Watches and Warnings</name>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              -71.5,25.0,0 -69.0,25.0,0 -69.0,27.5,0 -71.5,27.5,0 -71.5,25.0,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  </Document>
+</kml>
+"""
+)
+
 EA_FLOODS = {
     'items': [
         {
@@ -907,6 +1062,80 @@ JMA_WARNING = """\
       </Item>
     </Information>
   </Body>
+</Report>
+"""
+
+JMA_TROPICAL_FEED = """\
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" lang="ja">
+  <title>高頻度（随時）</title>
+  <entry>
+    <title>全般気象解説情報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260131041406_0_VPZJ51_JPTK_311312.xml</id>
+    <updated>2026-01-31T04:14:06Z</updated>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260131041406_0_VPZJ51_JPTK_311312.xml"/>
+    <content type="text">【全般気象解説情報】発達する熱帯低気圧に関する情報です。</content>
+  </entry>
+  <entry>
+    <title>気象警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260430154331_0_VPWW53_370000.xml</id>
+    <updated>2026-04-30T15:43:30Z</updated>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260430154331_0_VPWW53_370000.xml"/>
+    <content type="text">【香川県気象警報・注意報】香川県では強風や高波に注意してください。</content>
+  </entry>
+</feed>
+"""
+
+JMA_TROPICAL_REPORT = """\
+<?xml version="1.0" encoding="utf-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx_add="http://xml.kishou.go.jp/jmaxml1/addition1/" xmlns:jmx="http://xml.kishou.go.jp/jmaxml1/">
+<Control>
+<Title>全般気象解説情報</Title>
+<DateTime>2026-01-31T04:14:06Z</DateTime>
+<Status>通常</Status>
+<EditorialOffice>気象庁本庁</EditorialOffice>
+<PublishingOffice>気象庁</PublishingOffice>
+</Control>
+<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/">
+<Title>全般気象解説情報（発達する熱帯低気圧）</Title>
+<ReportDateTime>2026-01-31T13:12:00+09:00</ReportDateTime>
+<TargetDateTime>2026-01-31T13:12:00+09:00</TargetDateTime>
+<EventID>ZJPTK260001</EventID>
+<InfoType>発表</InfoType>
+<Serial>1</Serial>
+<InfoKind>気象解説情報</InfoKind>
+<InfoKindVersion>1.5_0</InfoKindVersion>
+<Headline>
+<Text>四国地方では大雨に警戒し、落雷や竜巻などの激しい突風に注意してください。</Text>
+<Information type="情報タグ">
+<Item>
+<Kind>
+<Name>情報タグ</Name>
+<Condition>発達する熱低 大雨 落雷 突風</Condition>
+</Kind>
+<Kind>
+<Name>TC番号</Name>
+<Condition>TC2601</Condition>
+</Kind>
+</Item>
+</Information>
+</Headline>
+</Head>
+<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/" xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/">
+<MeteorologicalInfos type="概況">
+<MeteorologicalInfo>
+<DateTime>2026-01-31T13:12:00+09:00</DateTime>
+<Item>
+<Kind>
+<Property>
+<Type>気象概況</Type>
+<Text type="本文">３１日９時の観測によると、熱帯低気圧が四万十市付近の北緯３３度００分、東経１３３度００分にあって、１時間におよそ２０キロの速さで北へ進んでいます。中心の気圧は９９８ヘクトパスカル、中心付近の最大風速は１５メートル、最大瞬間風速は２３メートルとなっています。</Text>
+</Property>
+</Kind>
+</Item>
+</MeteorologicalInfo>
+</MeteorologicalInfos>
+</Body>
 </Report>
 """
 
@@ -1459,6 +1688,142 @@ class ProviderBackendTests(unittest.TestCase):
         self.assertEqual(alerts[0].area_names, ['Ulleungdo', 'Dokdo'])
         requested_urls = [call.args[0] for call in fetch_text.call_args_list]
         self.assertNotIn('KR.W2604075_202604161200_SWA_75_EN', requested_urls)
+
+    def test_noaa_tsunami_backend_handles_ntwc_atom_feed_with_related_cap_link(self) -> None:
+        backend = NOAATsunamiBackend()
+        source = get_source('ntwc_tsunami')
+        assert source is not None
+
+        def fake_fetch_text(url: str, **_: object) -> str:
+            documents = {
+                source.url: NTWC_ATOM_FEED,
+                'https://www.tsunami.gov/events/PAAQ/2026/04/25/te1ihx/1/WEAK53/PAAQCAP.xml': (
+                    """\
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>PAAQ-1-te1ihx</identifier>
+  <info>
+    <language>en-US</language>
+    <event>Tsunami Information</event>
+    <headline>This is a Tsunami Information Statement.</headline>
+    <severity>Minor</severity>
+    <description>This is a Tsunami Information Statement.</description>
+    <area>
+      <areaDesc>65 miles SE of Dutch Harbor, Alaska</areaDesc>
+      <circle>53.656,-164.975 0.0</circle>
+    </area>
+  </info>
+</alert>
+"""
+                ),
+            }
+            return documents[url]
+
+        with (
+            patch('wevva_warnings.backends.noaa_tsunami.fetch_text', side_effect=fake_fetch_text),
+            patch('wevva_warnings.backends._cap_feed.fetch_text', side_effect=fake_fetch_text),
+        ):
+            alerts = backend.fetch_alerts(source)
+
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0].id, 'PAAQ-1-te1ihx')
+        self.assertEqual(alerts[0].event, 'Tsunami Information')
+        self.assertEqual(
+            alerts[0].url,
+            'https://www.tsunami.gov/events/PAAQ/2026/04/25/te1ihx/1/WEAK53/PAAQCAP.xml',
+        )
+        self.assertEqual(alerts[0].area_names, ['65 miles SE of Dutch Harbor', 'Alaska'])
+
+    def test_noaa_tsunami_backend_handles_direct_ptwc_cap_source(self) -> None:
+        backend = NOAATsunamiBackend()
+        source = get_source('ptwc_tsunami')
+        assert source is not None
+
+        with patch('wevva_warnings.backends.noaa_tsunami.fetch_text', return_value=PTWC_CAP):
+            alerts = backend.fetch_alerts(source)
+
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0].id, 'PHEB-3-26110000')
+        self.assertEqual(alerts[0].event, 'Tsunami Warning')
+        self.assertEqual(alerts[0].url, source.url)
+        self.assertEqual(alerts[0].severity, 'Severe')
+        self.assertEqual(alerts[0].area_names, ['Hawaii'])
+
+    def test_nhc_gis_backend_groups_summary_and_geometry_assets(self) -> None:
+        backend = NHCGISBackend()
+        source = get_source('nhc_gis_atlantic')
+        assert source is not None
+
+        def fake_fetch_bytes(url: str, **_: object) -> bytes:
+            documents = {
+                'https://www.nhc.noaa.gov/gis/AL012026_TRACK.kmz': NHC_TRACK_KMZ,
+                'https://www.nhc.noaa.gov/gis/AL012026_CONE.kmz': NHC_CONE_KMZ,
+                'https://www.nhc.noaa.gov/gis/AL012026_WW.kmz': NHC_WW_KMZ,
+            }
+            return documents[url]
+
+        with (
+            patch('wevva_warnings.backends._cap_feed.fetch_text', return_value=NHC_GIS_FEED),
+            patch('wevva_warnings.backends.nhc_gis.fetch_bytes', side_effect=fake_fetch_bytes),
+        ):
+            systems = backend.fetch_tropical_systems(source)
+
+        self.assertEqual(len(systems), 1)
+        system = systems[0]
+        self.assertEqual(system.id, 'al012026')
+        self.assertEqual(system.basin, 'Atlantic')
+        self.assertEqual(system.classification, 'Tropical Storm')
+        self.assertEqual(system.name, 'ALPHA')
+        self.assertEqual(system.center_lat, 25.0)
+        self.assertEqual(system.center_lon, -70.0)
+        self.assertEqual(system.advisory_number, '1')
+        self.assertEqual(system.min_pressure, '1002 MB')
+        self.assertEqual(
+            system.data_urls,
+            {
+                'forecast_track': 'https://www.nhc.noaa.gov/gis/AL012026_TRACK.kmz',
+                'cone': 'https://www.nhc.noaa.gov/gis/AL012026_CONE.kmz',
+                'watch_warning': 'https://www.nhc.noaa.gov/gis/AL012026_WW.kmz',
+            },
+        )
+        self.assertEqual(system.geometries['forecast_track']['type'], 'LineString')
+        self.assertEqual(system.geometries['forecast_track']['bbox'], [-72.0, 25.0, -70.0, 27.0])
+        self.assertEqual(system.geometries['cone']['type'], 'Polygon')
+        self.assertEqual(system.geometries['cone']['bbox'], [-72.0, 24.0, -68.0, 28.0])
+        self.assertEqual(system.geometries['watch_warning']['type'], 'Polygon')
+        self.assertEqual(system.parameters['NHC Wallet'], ['AL012026'])
+        self.assertEqual(system.parameters['ATCF ID'], ['al012026'])
+
+    def test_jma_tropical_backend_parses_official_tropical_low_discussion(self) -> None:
+        backend = JMATropicalBackend()
+        source = get_source('jma_tropical')
+        assert source is not None
+
+        def fake_fetch_text(url: str, **_: object) -> str:
+            documents = {
+                source.url: JMA_TROPICAL_FEED,
+                'https://www.data.jma.go.jp/developer/xml/data/20260131041406_0_VPZJ51_JPTK_311312.xml': JMA_TROPICAL_REPORT,
+            }
+            return documents[url]
+
+        with (
+            patch('wevva_warnings.backends._cap_feed.fetch_text', side_effect=fake_fetch_text),
+            patch('wevva_warnings.backends.jma_tropical.fetch_text', side_effect=fake_fetch_text),
+        ):
+            systems = backend.fetch_tropical_systems(source)
+
+        self.assertEqual(len(systems), 1)
+        system = systems[0]
+        self.assertEqual(system.id, 'TC2601')
+        self.assertEqual(system.classification, 'Developing Tropical Depression')
+        self.assertEqual(system.name, 'TC2601')
+        self.assertEqual(system.basin, 'Northwest Pacific')
+        self.assertEqual(system.center_lat, 33.0)
+        self.assertEqual(system.center_lon, 133.0)
+        self.assertEqual(system.movement, '北 at 20 km/h')
+        self.assertEqual(system.min_pressure, '998 hPa')
+        self.assertEqual(system.max_wind, '15 m/s')
+        self.assertEqual(system.parameters['JMA Event ID'], ['ZJPTK260001'])
+        self.assertEqual(system.parameters['JMA Tropical Number'], ['TC2601'])
 
     def test_ea_flood_backend_fetches_polygon_geometry_and_filters_exactly(self) -> None:
         backend = EAFloodBackend()

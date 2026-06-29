@@ -32,11 +32,14 @@ from .backends import (
     INMETBackend,
     INUMETBackend,
     JMABackend,
+    JMATropicalBackend,
     JMDBackend,
     KazhydrometBackend,
     KMABackend,
     KyrgyzhydrometBackend,
     NAMEMBackend,
+    NHCGISBackend,
+    NOAATsunamiBackend,
     MeteoCWBackend,
     MeteoComoresBackend,
     QatarCAABackend,
@@ -127,10 +130,13 @@ BACKENDS: dict[str, WarningBackend] = {
     'met_eireann': MetEireannBackend(),
     'inumet': INUMETBackend(),
     'jma': JMABackend(),
+    'jma_tropical': JMATropicalBackend(),
     'kazhydromet': KazhydrometBackend(),
     'kma': KMABackend(),
     'kyrgyzhydromet': KyrgyzhydrometBackend(),
     'namem': NAMEMBackend(),
+    'nhc_gis': NHCGISBackend(),
+    'noaa_tsunami': NOAATsunamiBackend(),
     'meteo_cw': MeteoCWBackend(),
     'meteocomores': MeteoComoresBackend(),
     'qatar_caa': QatarCAABackend(),
@@ -225,7 +231,7 @@ class LanguageNotSupportedError(ValueError):
         )
 
 
-def list_sources() -> list[WarningSource]:
+def list_sources(*, kind: str | None = None) -> list[WarningSource]:
     """Return the built-in source registry.
 
     Returns
@@ -234,20 +240,14 @@ def list_sources() -> list[WarningSource]:
         All registered warning sources.
 
     """
-    return list(SOURCES)
+    if kind is None:
+        return list(SOURCES)
+    return [source for source in SOURCES if source.kind == kind]
 
 
-def list_v2_sources() -> list[WarningSource]:
-    """Return sources that have had the provider-specific v2 parsing pass.
-
-    Returns
-    -------
-    list[WarningSource]
-        Registered sources whose provider feed parsing has been revisited in
-        the newer provider-specific pass.
-
-    """
-    return [source for source in SOURCES if source.provider_v2]
+def list_tropical_sources() -> list[WarningSource]:
+    """Return registered tropical-system sources."""
+    return list_sources(kind='tropical_system')
 
 
 def get_source(source_id: str) -> WarningSource | None:
@@ -316,7 +316,11 @@ def get_sources_for_country(
 
     """
     normalized_country = country_code.strip().upper()
-    country_sources = [source for source in SOURCES if source.country_code == normalized_country]
+    country_sources = [
+        source
+        for source in SOURCES
+        if source.country_code == normalized_country and source.kind == 'alert'
+    ]
     if not country_sources:
         raise UnsupportedCountryError(country_code)
 

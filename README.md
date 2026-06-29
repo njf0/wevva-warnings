@@ -40,10 +40,20 @@ alerts = get_alerts_for_point(49.8, 7.67, "DE", lang="de")
 wevva-warnings point 40.71 -74.00 US
 ```
 
+```bash
+wevva-warnings tropical-source nhc_gis_atlantic --formatted
+```
+
 ## Public API
 
 ```python
-from wevva_warnings import get_alerts_for_point, get_alerts_for_source, list_sources
+from wevva_warnings import (
+    get_alerts_for_point,
+    get_alerts_for_source,
+    get_tropical_systems_for_source,
+    get_tropical_systems_near,
+    list_sources,
+)
 ```
 
 The main entry point is:
@@ -53,6 +63,8 @@ The main entry point is:
 Useful lower-level helpers:
 
 - `get_alerts_for_source(source_id, active_only=False)`
+- `get_tropical_systems_for_source(source_id)`
+- `get_tropical_systems_near(lat, lon, radius_km=1000.0)`
 - `list_sources()`
 
 Notes:
@@ -60,7 +72,9 @@ Notes:
 - the caller supplies the correct `country_code`; the library does not infer country from coordinates
 - if a country has multiple language-specific feeds, English-capable sources are preferred by default
 - if you request an unsupported language, the library warns and falls back to the default source selection
-- `get_alerts_for_point(...)` raises `UnsupportedCountryError` when no sources are registered for the supplied country
+- `get_alerts_for_point(...)` raises `UnsupportedCountryError` when no alert sources are registered for the supplied country
+- returned `Alert` and `TropicalSystem` objects include optional `source_info` metadata when produced through the public query helpers
+- tropical-system sources are not currently routed through `country_code` point queries
 
 ## CLI
 
@@ -68,6 +82,8 @@ Main commands:
 
 - `wevva-warnings point LAT LON COUNTRY_CODE`
 - `wevva-warnings source SOURCE_ID`
+- `wevva-warnings tropical-source SOURCE_ID`
+- `wevva-warnings tropical-near LAT LON`
 - `wevva-warnings sources`
 
 Useful flags:
@@ -75,11 +91,14 @@ Useful flags:
 - `--lang de`
 - `--active`
 - `--debug`
-- `--formatted` for table output on `source`
+- `--formatted` for table output on `source` and `tropical-source`
+- `--radius-km 1000` on `tropical-near`
+- `--source SOURCE_ID` on `tropical-near` to restrict checked tropical-system sources
+- `--kind tropical_system` on `sources` to list only tropical-system sources
 
 ## Source registry
 
-There are currently **153** enabled sources in the built-in registry.
+There are currently **159** enabled sources in the built-in registry.
 For the full current list, use:
 
 ```bash
