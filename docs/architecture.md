@@ -8,7 +8,10 @@ optional `curl` fallback; it is not a polling service or a general weather API.
 
 The public Python boundary is `wevva_warnings/__init__.py`:
 
-- `get_alerts_for_point()` and `get_alerts_for_source()` return `Alert`.
+- `get_alerts_for_point()`, `get_alerts_for_country()`, and
+  `get_alerts_for_source()` return `Alert`.
+- `get_alert_sources_for_country()` exposes point-query source selection, and
+  `match_alerts_to_point()` matches fetched candidates locally.
 - `get_tropical_systems_for_source()` and `get_tropical_systems_near()` return
   `TropicalSystem`.
 - `list_sources()`/`list_tropical_sources()`, `WarningSource`, `Alert`,
@@ -42,6 +45,22 @@ possible, and deduplicates only `(source, id)`. Point queries additionally
 deduplicate semantically identical overlapping warnings. `active_only` uses
 `Alert.is_active()` and UTC-normalized timestamps.
 
+`get_alerts_for_country()` exposes the reusable country-level portion of that
+flow. It uses the same source-selection and language-fallback rules, fetches
+each selected source without point coordinates, attaches `source_info`,
+resolves available packaged geometry, filters active alerts when requested,
+and deduplicates `(source, id)` per source. It does not promise a complete
+country inventory when an upstream source cannot deliberately provide one.
+`nws` is included because its no-point request is a national active-alert feed;
+its native point request remains the more efficient point-query route.
+
+`match_alerts_to_point()` makes no network calls. It resolves missing supported
+packaged geometry on the supplied `Alert` objects, drops alerts without usable
+geometry, applies `active_only`, performs source/ID deduplication, then uses
+the same semantic deduplication as point queries. Applications own cache
+lifetimes and should normally cache country candidates without `active_only`
+when later matching at different times matters.
+
 Tropical sources are separate from country routing. A system matches a
 proximity query when its centre is within the radius or the point is in one of
 its polygon geometry layers.
@@ -70,6 +89,17 @@ documents and a later `matching` total after normalization; the latter is the
 authoritative count of candidate `Alert` objects. Native point-query backends
 and feeds without individually fetchable documents can report only that later
 count.
+
+### Country-query progress
+
+`get_alerts_for_country(..., progress=callback)` uses the same synchronous,
+exception-safe callback behaviour. It emits `country_query_started` with
+`country_code`, followed by the reusable `sources_total`, `source_started`,
+and any backend `alerts_total`/`alerts_checked` document or geometry events.
+It then emits `country_source_finished` with `source`, `candidates`, and
+`inactive_filtered` for each source, and `country_finished` with the final
+`alert_count`. Country completion events are distinct so the point-query
+meaning of `matched` remains unchanged.
 
 ## Models and geometry
 

@@ -19,6 +19,7 @@ from rich.text import Text
 from ._debug import bind_progress_callback
 from .models import Alert, TropicalSystem
 from .query import (
+    get_alerts_for_country,
     get_alerts_for_point,
     get_alerts_for_source,
     get_tropical_systems_for_source,
@@ -54,6 +55,24 @@ def point(
         country_code,
         lang=lang,
         active_only=active_only,
+        debug=debug,
+    )
+
+
+@app.command()
+def country(
+    country_code: str = typer.Argument(..., help='ISO country code used for source routing.'),
+    lang: str | None = typer.Option(None, '--lang', help='Optional language tag used for source selection.'),
+    active_only: bool = typer.Option(False, '--active', '--active-only', help='Only return alerts that are active right now.'),
+    formatted: bool = typer.Option(False, '--formatted', help='Render alerts as a table instead of pretty-printed objects.'),
+    debug: bool = typer.Option(False, '--debug', help='Show progress information while fetching country candidates.'),
+) -> None:
+    """Retrieve reusable country-level alert candidates."""
+    _render_country_query(
+        country_code,
+        lang=lang,
+        active_only=active_only,
+        formatted=formatted,
         debug=debug,
     )
 
@@ -184,6 +203,42 @@ def _render_point_query(
 
     show_source = len({alert.source for alert in alerts}) > 1
     render_console.print(_render_alerts_table(alerts, show_source=show_source))
+
+
+def _render_country_query(
+    country_code: str,
+    *,
+    lang: str | None,
+    active_only: bool,
+    formatted: bool,
+    debug: bool,
+) -> None:
+    """Run the country candidate query flow and render the result."""
+    render_console = console
+    try:
+        render_console, alerts = _run_with_optional_debug(
+            lambda _debug_enabled: get_alerts_for_country(
+                country_code,
+                lang=lang,
+                active_only=active_only,
+            ),
+            debug=debug,
+        )
+    except UnsupportedCountryError as exc:
+        typer.secho(str(exc), err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=2) from exc
+
+    if not alerts:
+        render_console.print('[bold yellow]No country-level alert candidates.[/bold yellow]')
+        return
+
+    if formatted:
+        show_source = len({alert.source for alert in alerts}) > 1
+        render_console.print(_render_alerts_table(alerts, show_source=show_source))
+        return
+
+    for alert in alerts:
+        render_console.print(_render_alert_object(alert))
 
 
 def _render_source_query(
@@ -455,7 +510,7 @@ class _DebugProgress:
             )
             return
 
-        if event == 'source_finished':
+        if event in {'source_finished', 'country_source_finished'}:
             self.progress.advance(self.sources_task_id)
             self.progress.update(self.sources_task_id, description='Sources')
             self.progress.update(

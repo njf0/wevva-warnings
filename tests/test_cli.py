@@ -66,6 +66,21 @@ class CLITests(unittest.TestCase):
         self.assertEqual(result.exit_code, 2)
         self.assertIn("country code 'ZZ'", result.output)
 
+    def test_country_command_passes_flags_and_uses_public_country_api(self) -> None:
+        with patch('wevva_warnings.cli.get_alerts_for_country', return_value=[]) as get_alerts:
+            result = runner.invoke(app, ['country', 'DE', '--lang', 'de', '--active', '--formatted'])
+
+        self.assertEqual(result.exit_code, 0)
+        get_alerts.assert_called_once_with('DE', lang='de', active_only=True)
+        self.assertIn('No country-level alert candidates.', result.stdout)
+
+    def test_country_command_prints_country_error(self) -> None:
+        with patch('wevva_warnings.cli.get_alerts_for_country', side_effect=UnsupportedCountryError('ZZ')):
+            result = runner.invoke(app, ['country', 'ZZ'])
+
+        self.assertEqual(result.exit_code, 2)
+        self.assertIn("country code 'ZZ'", result.output)
+
     def test_source_command_passes_flags(self) -> None:
         source = WarningSource(
             id='fmi_en',

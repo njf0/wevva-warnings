@@ -42,9 +42,9 @@ automated release command. Do not imply that one exists.
 - Preserve the public names exported by `wevva_warnings.__init__`, model field
   meanings, CLI command behaviour, and source IDs unless a task explicitly
   authorizes a documented breaking change.
-- Treat `get_alerts_for_point(..., progress=...)` event names and documented
-  payload keys as a stable public API. Emit progress through the shared helper;
-  never let a callback exception affect warning retrieval.
+- Treat documented point- and country-query progress event names and payload
+  keys as a stable public API. Emit progress through the shared helper; never
+  let a callback exception affect warning retrieval.
 - Keep provider-specific facts in a backend or `WarningSource.notes`; do not
   discard useful raw geocodes or parameters just to make fields uniform.
 - Prefer a small explicit backend. Reuse the existing CAP helpers when the

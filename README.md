@@ -48,8 +48,11 @@ wevva-warnings tropical-source nhc_gis_atlantic --formatted
 
 ```python
 from wevva_warnings import (
+    get_alert_sources_for_country,
+    get_alerts_for_country,
     get_alerts_for_point,
     get_alerts_for_source,
+    match_alerts_to_point,
     get_tropical_systems_for_source,
     get_tropical_systems_near,
     list_sources,
@@ -63,6 +66,9 @@ The main entry point is:
 
 Useful lower-level helpers:
 
+- `get_alert_sources_for_country(country_code, lang=None)`
+- `get_alerts_for_country(country_code, lang=None, active_only=False, progress=None)`
+- `match_alerts_to_point(alerts, lat, lon, active_only=False)`
 - `get_alerts_for_source(source_id, active_only=False)`
 - `get_tropical_systems_for_source(source_id)`
 - `get_tropical_systems_near(lat, lon, radius_km=1000.0)`
@@ -76,6 +82,22 @@ Notes:
 - `get_alerts_for_point(...)` raises `UnsupportedCountryError` when no alert sources are registered for the supplied country
 - returned `Alert` and `TropicalSystem` objects include optional `source_info` metadata when produced through the public query helpers
 - tropical-system sources are not currently routed through `country_code` point queries
+
+### Reusable country candidates
+
+Applications that need to match the same country's warnings to several points
+can fetch candidates once and keep them according to their own cache policy:
+
+```python
+candidates = get_alerts_for_country("DE", lang="en")
+berlin = match_alerts_to_point(candidates, lat=52.52, lon=13.405)
+munich = match_alerts_to_point(candidates, lat=48.137, lon=11.575)
+```
+
+Candidate retrieval does not guarantee a complete national inventory when an
+upstream provider cannot deliberately provide one. Matching makes no network
+calls, and may populate missing supported geometry on the supplied `Alert`
+objects from packaged geocode data.
 
 ### Point-query progress
 
@@ -104,6 +126,7 @@ documented in [docs/architecture.md](docs/architecture.md).
 Main commands:
 
 - `wevva-warnings point LAT LON COUNTRY_CODE`
+- `wevva-warnings country COUNTRY_CODE`
 - `wevva-warnings source SOURCE_ID`
 - `wevva-warnings tropical-source SOURCE_ID`
 - `wevva-warnings tropical-near LAT LON`

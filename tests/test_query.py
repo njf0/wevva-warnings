@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 import warnings
 
-from wevva_warnings import WarningQueryProgress
+from wevva_warnings import WarningQueryProgress, get_alert_sources_for_country, get_alerts_for_country, match_alerts_to_point
 from wevva_warnings.models import Alert, TropicalSystem
 from wevva_warnings.query import (
     get_alerts_for_point,
@@ -183,6 +183,198 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(alerts[0].source_info.id, 'fmi_en')
         self.assertEqual(alerts[0].headline, 'English headline')
         self.assertEqual(len(caught), 1)
+
+    def test_get_alert_sources_for_country_uses_point_query_language_fallback(self) -> None:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            sources = get_alert_sources_for_country('FI', lang='de')
+
+        self.assertEqual([source.id for source in sources], ['fmi_en'])
+        self.assertEqual(len(caught), 1)
+
+    def test_country_candidates_can_be_matched_to_multiple_points_without_fetching_again(self) -> None:
+        source = WarningSource(
+            id='example',
+            name='Example Weather Service',
+            backend='example',
+            country_code='EX',
+            url='https://example.test/warnings',
+            lang='en',
+        )
+        country_alerts = [
+            Alert(
+                id='berlin',
+                source='example',
+                event='Wind warning',
+                headline='Berlin wind warning',
+                geocodes={'EX-AREA': ['BERLIN']},
+                parameters={'profile': ['country']},
+                geometry={
+                    'type': 'Polygon',
+                    'coordinates': [[[13.2, 52.4], [13.6, 52.4], [13.6, 52.7], [13.2, 52.7], [13.2, 52.4]]],
+                },
+            ),
+            Alert(
+                id='munich',
+                source='example',
+                event='Rain warning',
+                headline='Munich rain warning',
+                geometry={
+                    'type': 'Polygon',
+                    'coordinates': [[[11.3, 48.0], [11.8, 48.0], [11.8, 48.3], [11.3, 48.3], [11.3, 48.0]]],
+                },
+            ),
+            Alert(
+                id='without-geometry',
+                source='example',
+                event='Fog warning',
+                headline='Warning without geometry',
+            ),
+            Alert(
+                id='berlin',
+                source='example',
+                event='Wind warning',
+                headline='Repeated Berlin warning',
+            ),
+        ]
+
+        class DummyBackend:
+            uses_native_point_query = False
+
+            def fetch_alerts(self, source, **kwargs):
+                del source
+                self.kwargs = kwargs
+                return country_alerts
+
+        backend = DummyBackend()
+        with (
+            patch('wevva_warnings.query.get_sources_for_country', return_value=[source]),
+            patch('wevva_warnings.query.get_backend', return_value=backend),
+        ):
+            candidates = get_alerts_for_country('EX', lang='en')
+            berlin = match_alerts_to_point(candidates, lat=52.52, lon=13.405)
+            munich = match_alerts_to_point(candidates, lat=48.137, lon=11.575)
+
+        self.assertEqual(backend.kwargs, {'lang': 'en', 'debug': False})
+        self.assertEqual([alert.id for alert in candidates], ['berlin', 'munich', 'without-geometry'])
+        self.assertIs(candidates[0].source_info, source)
+        self.assertEqual(candidates[0].geocodes, {'EX-AREA': ['BERLIN']})
+        self.assertEqual(candidates[0].parameters, {'profile': ['country']})
+        self.assertEqual([alert.id for alert in berlin], ['berlin'])
+        self.assertEqual([alert.id for alert in munich], ['munich'])
+
+    def test_country_query_reports_country_specific_progress(self) -> None:
+        source = WarningSource(
+            id='example',
+            name='Example Weather Service',
+            backend='example',
+            country_code='EX',
+            url='https://example.test/warnings',
+            lang='en',
+        )
+
+        class DummyBackend:
+            uses_native_point_query = False
+
+            def fetch_alerts(self, source, **kwargs):
+                del source, kwargs
+                return [Alert(id='one', source='example', event='Wind', headline='Wind warning')]
+
+        events: list[tuple[str, dict[str, object]]] = []
+        with (
+            patch('wevva_warnings.query.get_sources_for_country', return_value=[source]),
+            patch('wevva_warnings.query.get_backend', return_value=DummyBackend()),
+        ):
+            alerts = get_alerts_for_country('EX', progress=lambda event, payload: events.append((event, payload)))
+
+        self.assertEqual([alert.id for alert in alerts], ['one'])
+        self.assertEqual(
+            events,
+            [
+                ('country_query_started', {'country_code': 'EX'}),
+                ('sources_total', {'total': 1}),
+                ('source_started', {'source': 'example', 'provider_name': 'Example Weather Service'}),
+                ('country_source_finished', {'source': 'example', 'candidates': 1, 'inactive_filtered': 0}),
+                ('country_finished', {'alert_count': 1}),
+            ],
+        )
+
+    def test_country_query_uses_native_backend_without_point_coordinates(self) -> None:
+        source = WarningSource(
+            id='native',
+            name='Native Weather Service',
+            backend='native',
+            country_code='NX',
+            url='https://example.test/alerts',
+            lang='en',
+        )
+        native_alert = Alert(
+            id='national-alert',
+            source='native',
+            event='Wind warning',
+            headline='Native country candidate',
+            geometry={
+                'type': 'Polygon',
+                'coordinates': [[[24.0, 60.0], [25.0, 60.0], [25.0, 61.0], [24.0, 61.0], [24.0, 60.0]]],
+            },
+        )
+
+        class NativeBackend:
+            uses_native_point_query = True
+
+            def fetch_alerts(self, source, **kwargs):
+                del source
+                self.kwargs = kwargs
+                return [native_alert]
+
+        backend = NativeBackend()
+        with (
+            patch('wevva_warnings.query.get_sources_for_country', return_value=[source]),
+            patch('wevva_warnings.query.get_backend', return_value=backend),
+        ):
+            candidates = get_alerts_for_country('NX')
+            matches = match_alerts_to_point(candidates, lat=60.5, lon=24.5)
+
+        self.assertEqual(backend.kwargs, {'lang': None, 'debug': False})
+        self.assertEqual([alert.id for alert in matches], ['national-alert'])
+
+    def test_country_and_local_matching_honour_active_only(self) -> None:
+        now = datetime(2026, 3, 12, 12, 0, tzinfo=UTC)
+        source = WarningSource(
+            id='example',
+            name='Example Weather Service',
+            backend='example',
+            country_code='EX',
+            url='https://example.test/warnings',
+            lang='en',
+        )
+        future_alert = Alert(
+            id='future',
+            source='example',
+            event='Rain warning',
+            headline='Future rain warning',
+            onset=datetime(2026, 3, 13, 12, 0, tzinfo=UTC),
+            geometry={
+                'type': 'Polygon',
+                'coordinates': [[[24.0, 60.0], [25.0, 60.0], [25.0, 61.0], [24.0, 61.0], [24.0, 60.0]]],
+            },
+        )
+
+        class DummyBackend:
+            uses_native_point_query = False
+
+            def fetch_alerts(self, source, **kwargs):
+                del source, kwargs
+                return [future_alert]
+
+        with (
+            patch('wevva_warnings.query.get_sources_for_country', return_value=[source]),
+            patch('wevva_warnings.query.get_backend', return_value=DummyBackend()),
+            patch('wevva_warnings.query._utc_now', return_value=now),
+        ):
+            candidates = get_alerts_for_country('EX')
+            self.assertEqual(match_alerts_to_point(candidates, lat=60.5, lon=24.5, active_only=True), [])
+            self.assertEqual(get_alerts_for_country('EX', active_only=True), [])
 
     def test_get_alerts_for_point_filters_by_polygon_geometry(self) -> None:
         with patch('wevva_warnings.backends._cap_feed.fetch_text', side_effect=fake_fetch_text):

@@ -95,19 +95,7 @@ def _get_alerts_for_point(
     seen: set[tuple[str, str]] = set()
     normalized_country = country_code.strip().upper()
     emit_progress('query_started', country_code=normalized_country, lat=lat, lon=lon)
-    selected_lang = lang
-    try:
-        sources = get_sources_for_country(normalized_country, lang=selected_lang)
-    except LanguageNotSupportedError as exc:
-        message = (
-            f'Language {exc.lang!r} is not supported for country code {exc.country_code!r}; '
-            'falling back to the default source selection.'
-        )
-        warnings.warn(message, stacklevel=2)
-        if debug:
-            logging.warning(message)
-        selected_lang = None
-        sources = get_sources_for_country(normalized_country, lang=None)
+    sources, selected_lang = _select_alert_sources_for_country(country_code, lang=lang, debug=debug)
     source_backends = [(source, backend) for source in sources if (backend := get_backend(source)) is not None]
     now = _utc_now() if active_only else None
 
@@ -139,12 +127,9 @@ def _get_alerts_for_point(
         for completed, alert in enumerate(source_alerts, start=1):
             matches_point = True
             if not backend.uses_native_point_query:
-                geometry = _resolved_alert_geometry(alert)
-                if geometry is None:
+                matches_point, geometry_missing = _alert_geometry_matches_point(alert, lat=lat, lon=lon)
+                if geometry_missing:
                     missing_geometry += 1
-                    matches_point = False
-                elif not point_in_geometry(lat, lon, geometry):
-                    matches_point = False
 
             if matches_point:
                 is_active = not active_only or now is None or alert.is_active(now)
@@ -204,6 +189,121 @@ def _get_alerts_for_point(
 
     emit_progress('finished', alert_count=len(deduped_alerts))
     return deduped_alerts
+
+
+def get_alert_sources_for_country(
+    country_code: str,
+    *,
+    lang: str | None = None,
+) -> list[WarningSource]:
+    """Return alert sources selected for a country and language request.
+
+    This applies the same country normalization, default English preference,
+    and unsupported-language fallback as :func:`get_alerts_for_point`.
+    """
+    sources, _ = _select_alert_sources_for_country(country_code, lang=lang, debug=False)
+    return sources
+
+
+def get_alerts_for_country(
+    country_code: str,
+    *,
+    lang: str | None = None,
+    active_only: bool = False,
+    progress: WarningQueryProgress | None = None,
+) -> list[Alert]:
+    """Return reusable alert candidates for one country.
+
+    This fetches the country-level products of the sources selected for the
+    request, without applying a point filter. The returned alerts are suitable
+    for repeated local calls to :func:`match_alerts_to_point`.
+
+    ``progress`` uses the documented country-query events and is called
+    synchronously. Callback exceptions are ignored.
+    """
+    if progress is None:
+        return _get_alerts_for_country(country_code, lang=lang, active_only=active_only)
+
+    with bind_progress_callback(progress):
+        return _get_alerts_for_country(country_code, lang=lang, active_only=active_only)
+
+
+def _get_alerts_for_country(
+    country_code: str,
+    *,
+    lang: str | None,
+    active_only: bool,
+) -> list[Alert]:
+    """Implement one country candidate query with any active progress callback."""
+    normalized_country = country_code.strip().upper()
+    emit_progress('country_query_started', country_code=normalized_country)
+    sources, selected_lang = _select_alert_sources_for_country(country_code, lang=lang, debug=False)
+    source_backends = [(source, backend) for source in sources if (backend := get_backend(source)) is not None]
+    now = _utc_now() if active_only else None
+    candidates: list[Alert] = []
+
+    emit_progress('sources_total', total=len(source_backends))
+    for source, backend in source_backends:
+        emit_progress('source_started', source=source.id, provider_name=source.name)
+        source_alerts = backend.fetch_alerts(source, lang=selected_lang, debug=False)
+        _attach_alert_source_info(source_alerts, source)
+
+        source_candidates: list[Alert] = []
+        seen: set[tuple[str, str]] = set()
+        inactive_filtered = 0
+        for alert in source_alerts:
+            _resolved_alert_geometry(alert)
+            if active_only and now is not None and not alert.is_active(now):
+                inactive_filtered += 1
+                continue
+            key = (alert.source, alert.id)
+            if key in seen:
+                continue
+            seen.add(key)
+            source_candidates.append(alert)
+
+        candidates.extend(source_candidates)
+        emit_progress(
+            'country_source_finished',
+            source=source.id,
+            candidates=len(source_candidates),
+            inactive_filtered=inactive_filtered,
+        )
+
+    emit_progress('country_finished', alert_count=len(candidates))
+    return candidates
+
+
+def match_alerts_to_point(
+    alerts: list[Alert],
+    *,
+    lat: float,
+    lon: float,
+    active_only: bool = False,
+) -> list[Alert]:
+    """Return supplied alert candidates whose geometry contains one point.
+
+    Matching is local and makes no network calls. Missing geometry is resolved
+    from supported packaged geocodes where possible, which may populate the
+    ``geometry`` field on the supplied alert objects.
+    """
+    now = _utc_now() if active_only else None
+    matches: list[Alert] = []
+    seen: set[tuple[str, str]] = set()
+
+    for alert in alerts:
+        matches_point, _ = _alert_geometry_matches_point(alert, lat=lat, lon=lon)
+        if not matches_point:
+            continue
+        if active_only and now is not None and not alert.is_active(now):
+            continue
+        key = (alert.source, alert.id)
+        if key in seen:
+            continue
+        seen.add(key)
+        matches.append(alert)
+
+    return _dedupe_point_alerts(matches)
 
 
 def get_alerts_for_source(
@@ -369,6 +469,40 @@ def _utc_now() -> datetime:
 
     """
     return datetime.now(UTC)
+
+
+def _select_alert_sources_for_country(
+    country_code: str,
+    *,
+    lang: str | None,
+    debug: bool,
+) -> tuple[list[WarningSource], str | None]:
+    """Select country alert sources, with the public fallback behaviour."""
+    normalized_country = country_code.strip().upper()
+    try:
+        return get_sources_for_country(normalized_country, lang=lang), lang
+    except LanguageNotSupportedError as exc:
+        message = (
+            f'Language {exc.lang!r} is not supported for country code {exc.country_code!r}; '
+            'falling back to the default source selection.'
+        )
+        warnings.warn(message, stacklevel=3)
+        if debug:
+            logging.warning(message)
+        return get_sources_for_country(normalized_country, lang=None), None
+
+
+def _alert_geometry_matches_point(
+    alert: Alert,
+    *,
+    lat: float,
+    lon: float,
+) -> tuple[bool, bool]:
+    """Return whether an alert matches locally and whether geometry was missing."""
+    geometry = _resolved_alert_geometry(alert)
+    if geometry is None:
+        return False, True
+    return point_in_geometry(lat, lon, geometry), False
 
 
 def _resolved_alert_geometry(alert: Alert) -> dict[str, object] | None:
