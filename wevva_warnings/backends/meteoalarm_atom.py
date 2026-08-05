@@ -73,12 +73,12 @@ class MeteoAlarmAtomBackend(WarningBackend):
         alert_urls = list(dict.fromkeys(alert_urls))
         if debug:
             logging.info('Provider %r found %s CAP documents.', source.id, len(alert_urls))
-            emit_progress('documents_total', source=source.id, total=len(alert_urls))
+        emit_progress('alerts_total', source=source.id, total=len(alert_urls), phase='documents')
 
         preferred_lang = lang or source.lang
         alerts: list[Alert] = []
         seen: set[tuple[str, str]] = set()
-        for alert_url in alert_urls:
+        for completed, alert_url in enumerate(alert_urls, start=1):
             try:
                 alert_payload = fetch_text(alert_url, headers={'Accept': '*/*'}, debug=debug)
                 alert = parse_cap_alert(
@@ -98,8 +98,13 @@ class MeteoAlarmAtomBackend(WarningBackend):
             except BackendError:
                 continue
             finally:
-                if debug:
-                    emit_progress('documents_advance', source=source.id)
+                emit_progress(
+                    'alerts_checked',
+                    source=source.id,
+                    completed=completed,
+                    total=len(alert_urls),
+                    phase='documents',
+                )
         return alerts
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .._debug import emit_progress
 from ..geometry import point_in_geometry
 from ..models import Alert
 from ..sources import WarningSource
@@ -57,11 +58,19 @@ class EAFloodBackend(WarningBackend):
         if not isinstance(items, list):
             return []
 
+        emit_progress('alerts_total', source=source.id, total=len(items), phase='geometry')
         alerts: list[Alert] = []
-        for item in items:
+        for completed, item in enumerate(items, start=1):
             alert = self._to_alert(source, item, lat=lat, lon=lon, debug=debug)
             if alert is not None:
                 alerts.append(alert)
+            emit_progress(
+                'alerts_checked',
+                source=source.id,
+                completed=completed,
+                total=len(items),
+                phase='geometry',
+            )
         return alerts
 
     def _to_alert(

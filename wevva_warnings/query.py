@@ -7,10 +7,11 @@ import math
 import warnings
 from datetime import UTC, datetime
 
-from ._debug import emit_progress
+from ._debug import bind_progress_callback, emit_progress
 from .geocoding import resolve_alert_geometry
 from .geometry import point_in_geometry
 from .models import Alert, TropicalSystem
+from .progress import WarningQueryProgress
 from .registry import LanguageNotSupportedError, get_backend, get_source, get_sources_for_country, list_tropical_sources
 from .sources import WarningSource
 
@@ -22,6 +23,7 @@ def get_alerts_for_point(
     lang: str | None = None,
     debug: bool = False,
     active_only: bool = False,
+    progress: WarningQueryProgress | None = None,
 ) -> list[Alert]:
     """Return alerts that apply to one point.
 
@@ -42,11 +44,15 @@ def get_alerts_for_point(
         language is not supported for the country, a warning is emitted and the
         default source selection is used instead.
     debug : bool, optional
-        If True, emit progress information about the query process.
+        If True, emit diagnostic logging about the query process.
     active_only : bool, optional
         If True, only return alerts that are currently active. This is
         determined by comparing the current UTC time to each alert's start and
         end times.
+    progress : WarningQueryProgress | None, optional
+        Callback invoked with documented progress events while the query runs.
+        It is called synchronously on the calling thread; callback exceptions
+        are ignored and cannot affect the query result.
 
     Returns
     -------
@@ -54,9 +60,41 @@ def get_alerts_for_point(
         A list of alerts that apply to the given point.
 
     """
+    if progress is None:
+        return _get_alerts_for_point(
+            lat,
+            lon,
+            country_code,
+            lang=lang,
+            debug=debug,
+            active_only=active_only,
+        )
+
+    with bind_progress_callback(progress):
+        return _get_alerts_for_point(
+            lat,
+            lon,
+            country_code,
+            lang=lang,
+            debug=debug,
+            active_only=active_only,
+        )
+
+
+def _get_alerts_for_point(
+    lat: float,
+    lon: float,
+    country_code: str,
+    *,
+    lang: str | None,
+    debug: bool,
+    active_only: bool,
+) -> list[Alert]:
+    """Implement one point query with any active progress callback."""
     alerts: list[Alert] = []
     seen: set[tuple[str, str]] = set()
     normalized_country = country_code.strip().upper()
+    emit_progress('query_started', country_code=normalized_country, lat=lat, lon=lon)
     selected_lang = lang
     try:
         sources = get_sources_for_country(normalized_country, lang=selected_lang)
@@ -73,6 +111,7 @@ def get_alerts_for_point(
     source_backends = [(source, backend) for source in sources if (backend := get_backend(source)) is not None]
     now = _utc_now() if active_only else None
 
+    emit_progress('sources_total', total=len(source_backends))
     if debug:
         logging.info(
             'Looking up warnings for point (%s, %s) in country %r',
@@ -83,38 +122,49 @@ def get_alerts_for_point(
         logging.info('Available providers: %s', [source.id for source, _ in source_backends])
         if active_only:
             logging.info('Only alerts that are active right now will be returned.')
-        emit_progress('sources_total', total=len(source_backends))
-
     for source, backend in source_backends:
+        provider_name = getattr(source, 'name', source.id)
+        emit_progress('source_started', source=source.id, provider_name=provider_name)
         if debug:
-            emit_progress('source_started', source=source.id)
             logging.info('Using provider %r via %s()', source.id, backend.__class__.__name__)
 
         source_alerts = backend.fetch_alerts(source, lat=lat, lon=lon, lang=selected_lang, debug=debug)
         _attach_alert_source_info(source_alerts, source)
+        total_candidates = len(source_alerts)
+        emit_progress('alerts_total', source=source.id, total=total_candidates, phase='matching')
         matched_count = 0
         missing_geometry = 0
         inactive_skipped = 0
 
-        for alert in source_alerts:
+        for completed, alert in enumerate(source_alerts, start=1):
+            matches_point = True
             if not backend.uses_native_point_query:
                 geometry = _resolved_alert_geometry(alert)
                 if geometry is None:
                     missing_geometry += 1
-                    continue
-                if not point_in_geometry(lat, lon, geometry):
-                    continue
+                    matches_point = False
+                elif not point_in_geometry(lat, lon, geometry):
+                    matches_point = False
 
-            if active_only and now is not None and not alert.is_active(now):
-                inactive_skipped += 1
-                continue
+            if matches_point:
+                is_active = not active_only or now is None or alert.is_active(now)
+                if not is_active:
+                    inactive_skipped += 1
+                else:
+                    matched_count += 1
+                    key = (alert.source, alert.id)
+                    if key not in seen:
+                        seen.add(key)
+                        alerts.append(alert)
 
-            matched_count += 1
-            key = (alert.source, alert.id)
-            if key in seen:
-                continue
-            seen.add(key)
-            alerts.append(alert)
+            emit_progress(
+                'alerts_checked',
+                source=source.id,
+                completed=completed,
+                total=total_candidates,
+                matched=matched_count,
+                phase='matching',
+            )
 
         if debug:
             if backend.uses_native_point_query:
@@ -131,7 +181,14 @@ def get_alerts_for_point(
                 message = f'{message}, ' + ', '.join(details)
 
             logging.info('%s.', message)
-            emit_progress('source_finished', source=source.id)
+        emit_progress(
+            'source_finished',
+            source=source.id,
+            candidates=total_candidates,
+            matched=matched_count,
+            skipped_without_geometry=missing_geometry,
+            inactive_filtered=inactive_skipped,
+        )
 
     deduped_alerts = _dedupe_point_alerts(alerts)
 
@@ -145,6 +202,7 @@ def get_alerts_for_point(
         for alert in deduped_alerts:
             logging.info(alert)
 
+    emit_progress('finished', alert_count=len(deduped_alerts))
     return deduped_alerts
 
 

@@ -4,6 +4,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from .geocoding import geometry_from_geocodes, resolve_alert_geometry
 from .models import Alert, TropicalSystem
+from .progress import WarningQueryProgress
 from .query import get_alerts_for_point, get_alerts_for_source, get_tropical_systems_for_source, get_tropical_systems_near
 from .registry import LanguageNotSupportedError, UnsupportedCountryError, list_sources, list_tropical_sources
 from .sources import WarningSource
@@ -19,6 +20,7 @@ __all__ = [
     'TropicalSystem',
     'UnsupportedCountryError',
     'WarningSource',
+    'WarningQueryProgress',
     '__version__',
     'geometry_from_geocodes',
     'get_alerts_for_point',

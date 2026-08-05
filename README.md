@@ -53,12 +53,13 @@ from wevva_warnings import (
     get_tropical_systems_for_source,
     get_tropical_systems_near,
     list_sources,
+    WarningQueryProgress,
 )
 ```
 
 The main entry point is:
 
-- `get_alerts_for_point(lat, lon, country_code, lang=None, debug=False, active_only=False)`
+- `get_alerts_for_point(lat, lon, country_code, lang=None, debug=False, active_only=False, progress=None)`
 
 Useful lower-level helpers:
 
@@ -75,6 +76,28 @@ Notes:
 - `get_alerts_for_point(...)` raises `UnsupportedCountryError` when no alert sources are registered for the supplied country
 - returned `Alert` and `TropicalSystem` objects include optional `source_info` metadata when produced through the public query helpers
 - tropical-system sources are not currently routed through `country_code` point queries
+
+### Point-query progress
+
+Pass an optional `progress` callback to receive structured updates while a
+point query runs. The callback is invoked synchronously on the calling thread;
+UI callers running the query in a worker should marshal updates to their UI as
+needed. Callback exceptions are ignored so a progress display cannot interrupt
+the warning query.
+
+```python
+def show_progress(event: str, payload: dict[str, object]) -> None:
+    if event == "source_started":
+        print(f"Checking weather warnings from {payload['provider_name']}…")
+    elif event == "alerts_checked":
+        print(f"Checked {payload['completed']} of {payload['total']} warnings")
+
+
+alerts = get_alerts_for_point(60.17, 24.94, "FI", progress=show_progress)
+```
+
+`WarningQueryProgress` is the public callback type. The stable events are
+documented in [docs/architecture.md](docs/architecture.md).
 
 ## CLI
 

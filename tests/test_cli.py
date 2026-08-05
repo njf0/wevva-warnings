@@ -6,9 +6,10 @@ from datetime import UTC, datetime
 import unittest
 from unittest.mock import patch
 
+from rich.progress import Progress
 from typer.testing import CliRunner
 
-from wevva_warnings.cli import app
+from wevva_warnings.cli import _DebugProgress, app
 from wevva_warnings.models import Alert, TropicalSystem
 from wevva_warnings.registry import UnsupportedCountryError
 from wevva_warnings.sources import WarningSource
@@ -17,6 +18,19 @@ runner = CliRunner()
 
 
 class CLITests(unittest.TestCase):
+    def test_debug_progress_handles_public_warning_events(self) -> None:
+        with Progress(disable=True) as progress:
+            debug_progress = _DebugProgress(progress)
+            debug_progress.emit('alerts_total', {'source': 'fmi_en', 'total': 2, 'phase': 'documents'})
+            debug_progress.emit(
+                'alerts_checked',
+                {'source': 'fmi_en', 'completed': 1, 'total': 2, 'phase': 'documents'},
+            )
+
+            task = progress.tasks[debug_progress.documents_task_id]
+            self.assertEqual(task.total, 2)
+            self.assertEqual(task.completed, 1)
+
     def test_point_command_passes_flags(self) -> None:
         with patch('wevva_warnings.cli.get_alerts_for_point', return_value=[]) as get_alerts:
             result = runner.invoke(app, ['point', '40.71', '-74.00', 'DE', '--lang', 'de', '--debug', '--active'])

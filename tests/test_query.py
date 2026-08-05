@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 import warnings
 
+from wevva_warnings import WarningQueryProgress
 from wevva_warnings.models import Alert, TropicalSystem
 from wevva_warnings.query import (
     get_alerts_for_point,
@@ -252,6 +253,239 @@ class QueryTests(unittest.TestCase):
 
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0].headline, 'Ground frost warning')
+
+    def test_get_alerts_for_point_without_progress_preserves_query_behaviour(self) -> None:
+        source = WarningSource(
+            id='example',
+            name='Example Weather Service',
+            backend='example',
+            country_code='EX',
+            url='https://example.test/warnings',
+            lang='en',
+        )
+        alert = Alert(
+            id='matching',
+            source='example',
+            event='Wind warning',
+            headline='Matching warning',
+            geometry={
+                'type': 'Polygon',
+                'coordinates': [[[24.0, 60.0], [25.0, 60.0], [25.0, 61.0], [24.0, 61.0], [24.0, 60.0]]],
+            },
+        )
+
+        class DummyBackend:
+            uses_native_point_query = False
+
+            def fetch_alerts(self, source, **kwargs):
+                del source
+                self.kwargs = kwargs
+                return [alert]
+
+        backend = DummyBackend()
+        with (
+            patch('wevva_warnings.query.get_sources_for_country', return_value=[source]),
+            patch('wevva_warnings.query.get_backend', return_value=backend),
+        ):
+            alerts = get_alerts_for_point(60.5, 24.5, 'EX', lang='en', active_only=True)
+
+        self.assertEqual([returned.id for returned in alerts], ['matching'])
+        self.assertEqual(
+            backend.kwargs,
+            {'lat': 60.5, 'lon': 24.5, 'lang': 'en', 'debug': False},
+        )
+
+    def test_get_alerts_for_point_reports_public_progress(self) -> None:
+        source = WarningSource(
+            id='example',
+            name='Example Weather Service',
+            backend='example',
+            country_code='EX',
+            url='https://example.test/warnings',
+            lang='en',
+        )
+        source_alerts = [
+            Alert(
+                id='matching',
+                source='example',
+                event='Wind warning',
+                headline='Matching warning',
+                geometry={
+                    'type': 'Polygon',
+                    'coordinates': [[[24.0, 60.0], [25.0, 60.0], [25.0, 61.0], [24.0, 61.0], [24.0, 60.0]]],
+                },
+            ),
+            Alert(
+                id='missing-geometry',
+                source='example',
+                event='Rain warning',
+                headline='Warning without geometry',
+            ),
+        ]
+
+        class DummyBackend:
+            uses_native_point_query = False
+
+            def fetch_alerts(self, source, **kwargs):
+                del source, kwargs
+                return source_alerts
+
+        events: list[tuple[str, dict[str, object]]] = []
+
+        def record_progress(event: str, payload: dict[str, object]) -> None:
+            events.append((event, payload))
+
+        progress: WarningQueryProgress = record_progress
+        with (
+            patch('wevva_warnings.query.get_sources_for_country', return_value=[source]),
+            patch('wevva_warnings.query.get_backend', return_value=DummyBackend()),
+        ):
+            alerts = get_alerts_for_point(60.5, 24.5, 'EX', progress=progress)
+
+        self.assertEqual([alert.id for alert in alerts], ['matching'])
+        self.assertEqual(
+            [event for event, _ in events],
+            [
+                'query_started',
+                'sources_total',
+                'source_started',
+                'alerts_total',
+                'alerts_checked',
+                'alerts_checked',
+                'source_finished',
+                'finished',
+            ],
+        )
+        self.assertEqual(events[2][1], {'source': 'example', 'provider_name': 'Example Weather Service'})
+        self.assertEqual(
+            events[5][1],
+            {'source': 'example', 'completed': 2, 'total': 2, 'matched': 1, 'phase': 'matching'},
+        )
+        self.assertEqual(
+            events[6][1],
+            {
+                'source': 'example',
+                'candidates': 2,
+                'matched': 1,
+                'skipped_without_geometry': 1,
+                'inactive_filtered': 0,
+            },
+        )
+        self.assertEqual(events[-1], ('finished', {'alert_count': 1}))
+
+    def test_get_alerts_for_point_reports_cap_document_progress_without_debug(self) -> None:
+        events: list[tuple[str, dict[str, object]]] = []
+
+        with patch('wevva_warnings.backends._cap_feed.fetch_text', side_effect=fake_fetch_text):
+            alerts = get_alerts_for_point(
+                60.22,
+                24.94,
+                'FI',
+                progress=lambda event, payload: events.append((event, payload)),
+            )
+
+        self.assertEqual(len(alerts), 1)
+        self.assertIn(
+            ('alerts_total', {'source': 'fmi_en', 'total': 1, 'phase': 'documents'}),
+            events,
+        )
+        self.assertIn(
+            (
+                'alerts_checked',
+                {'source': 'fmi_en', 'completed': 1, 'total': 1, 'phase': 'documents'},
+            ),
+            events,
+        )
+
+    def test_native_point_query_reports_no_document_stage(self) -> None:
+        source = WarningSource(
+            id='native',
+            name='Native Weather Service',
+            backend='native',
+            country_code='NX',
+            url='https://example.test/point',
+            lang='en',
+        )
+        native_alert = Alert(
+            id='native-match',
+            source='native',
+            event='Wind warning',
+            headline='Native point result',
+        )
+
+        class NativeBackend:
+            uses_native_point_query = True
+
+            def fetch_alerts(self, source, **kwargs):
+                del source, kwargs
+                return [native_alert]
+
+        events: list[tuple[str, dict[str, object]]] = []
+        with (
+            patch('wevva_warnings.query.get_sources_for_country', return_value=[source]),
+            patch('wevva_warnings.query.get_backend', return_value=NativeBackend()),
+        ):
+            alerts = get_alerts_for_point(
+                60.5,
+                24.5,
+                'NX',
+                progress=lambda event, payload: events.append((event, payload)),
+            )
+
+        self.assertEqual([alert.id for alert in alerts], ['native-match'])
+        phases = [payload.get('phase') for event, payload in events if event == 'alerts_total']
+        self.assertEqual(phases, ['matching'])
+        self.assertEqual(
+            events[-2],
+            (
+                'source_finished',
+                {
+                    'source': 'native',
+                    'candidates': 1,
+                    'matched': 1,
+                    'skipped_without_geometry': 0,
+                    'inactive_filtered': 0,
+                },
+            ),
+        )
+    def test_progress_callback_failure_does_not_interrupt_point_query(self) -> None:
+        source = WarningSource(
+            id='example',
+            name='Example Weather Service',
+            backend='example',
+            country_code='EX',
+            url='https://example.test/warnings',
+            lang='en',
+        )
+        alert = Alert(
+            id='matching',
+            source='example',
+            event='Wind warning',
+            headline='Matching warning',
+            geometry={
+                'type': 'Polygon',
+                'coordinates': [[[24.0, 60.0], [25.0, 60.0], [25.0, 61.0], [24.0, 61.0], [24.0, 60.0]]],
+            },
+        )
+
+        class DummyBackend:
+            uses_native_point_query = False
+
+            def fetch_alerts(self, source, **kwargs):
+                del source, kwargs
+                return [alert]
+
+        def broken_progress(event: str, payload: dict[str, object]) -> None:
+            del event, payload
+            raise RuntimeError('UI closed')
+
+        with (
+            patch('wevva_warnings.query.get_sources_for_country', return_value=[source]),
+            patch('wevva_warnings.query.get_backend', return_value=DummyBackend()),
+        ):
+            alerts = get_alerts_for_point(60.5, 24.5, 'EX', progress=broken_progress)
+
+        self.assertEqual([returned.id for returned in alerts], ['matching'])
 
     def test_get_alerts_for_source_active_only_filters_future_alerts(self) -> None:
         with (

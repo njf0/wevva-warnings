@@ -467,7 +467,7 @@ class _DebugProgress:
             )
             return
 
-        if event == 'documents_total':
+        if event == 'alerts_total':
             total = int(payload.get('total') or 0)
             if total <= 0:
                 self.progress.update(
@@ -480,17 +480,20 @@ class _DebugProgress:
                 return
 
             source = str(payload.get('source') or 'source')
+            phase = str(payload.get('phase') or 'checking')
+            description = 'CAP documents' if phase == 'documents' else 'Warnings'
             self.progress.update(
                 self.documents_task_id,
                 total=total,
                 completed=0,
                 visible=True,
-                description=f'CAP documents: {source}',
+                description=f'{description}: {source}',
             )
             return
 
-        if event == 'documents_advance':
-            self.progress.advance(self.documents_task_id)
+        if event == 'alerts_checked':
+            completed = int(payload.get('completed') or 0)
+            self.progress.update(self.documents_task_id, completed=completed)
 
 
 def _render_alerts_table(alerts: list[Alert], *, show_source: bool) -> Table:

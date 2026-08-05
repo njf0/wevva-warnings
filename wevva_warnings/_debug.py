@@ -4,19 +4,18 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from collections.abc import Callable
 from typing import Any
 
-ProgressCallback = Callable[[str, dict[str, Any]], None]
+from .progress import WarningQueryProgress
 
-_progress_callback: ContextVar[ProgressCallback | None] = ContextVar(
+_progress_callback: ContextVar[WarningQueryProgress | None] = ContextVar(
     'progress_callback',
     default=None,
 )
 
 
 @contextmanager
-def bind_progress_callback(callback: ProgressCallback | None):
+def bind_progress_callback(callback: WarningQueryProgress | None):
     """Bind a progress callback for the current execution context.
 
     Parameters
@@ -58,4 +57,8 @@ def emit_progress(event: str, **payload: Any) -> None:
     callback = _progress_callback.get()
     if callback is None:
         return
-    callback(event, payload)
+    try:
+        callback(event, payload)
+    except Exception:
+        # Progress is advisory. A UI update must not affect the query result.
+        return
