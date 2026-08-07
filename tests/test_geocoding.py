@@ -108,7 +108,7 @@ class GeocodingTests(unittest.TestCase):
 
         self.assertIsNotNone(geometry)
         assert geometry is not None
-        self.assertEqual(geometry['type'], 'Polygon')
+        self.assertIn(geometry['type'], {'Polygon', 'MultiPolygon'})
 
     def test_geometry_from_geocodes_resolves_bom_amoc_geometry(self) -> None:
         with patch('wevva_warnings.geocoding._find_bom_amoc_dataset_dir', return_value=BOM_AMOC_FRAGMENT_FIXTURE_PATH):

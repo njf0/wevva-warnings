@@ -6,10 +6,13 @@ from .geocoding import geometry_from_geocodes, resolve_alert_geometry
 from .models import Alert, TropicalSystem
 from .progress import WarningQueryProgress
 from .query import (
+    deduplicate_alerts,
     get_alert_sources_for_country,
     get_alerts_for_country,
     get_alerts_for_point,
     get_alerts_for_source,
+    get_native_alerts_for_point,
+    get_reusable_alerts_for_country,
     get_tropical_systems_for_source,
     get_tropical_systems_near,
     match_alerts_to_point,
@@ -30,11 +33,14 @@ __all__ = [
     'WarningSource',
     'WarningQueryProgress',
     '__version__',
+    'deduplicate_alerts',
     'geometry_from_geocodes',
     'get_alert_sources_for_country',
     'get_alerts_for_country',
     'get_alerts_for_point',
     'get_alerts_for_source',
+    'get_native_alerts_for_point',
+    'get_reusable_alerts_for_country',
     'get_tropical_systems_for_source',
     'get_tropical_systems_near',
     'list_sources',

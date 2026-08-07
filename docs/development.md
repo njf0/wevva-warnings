@@ -49,5 +49,14 @@ application credentials or API keys are configured in this repository.
 Setuptools is the build backend. Version and package metadata live in
 `pyproject.toml`; `wevva-warnings = wevva_warnings.cli:main` is the console
 entry point. No publishing configuration, CI release workflow, or documented
-release procedure exists. A future release task should establish and document
-the desired manual or automated process before publishing.
+release procedure exists. Releases are manual and use the maintainer's PyPI
+token:
+
+1. Update the version in `pyproject.toml` and the local package entry in
+   `uv.lock`.
+2. Run the full unittest suite and `uv build`.
+3. Inspect the generated `dist/` wheel and source distribution, then commit
+   the release changes, create a matching `vX.Y.Z` tag, and push the commit and
+   tag.
+4. Publish the verified artifacts with `uv publish`. Do not place a token in
+   the repository; provide it through uv's supported credential mechanism.

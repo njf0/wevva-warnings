@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import warnings
+from collections.abc import Iterable
 from datetime import UTC, datetime
 
 from ._debug import bind_progress_callback, emit_progress
@@ -89,6 +90,7 @@ def _get_alerts_for_point(
     lang: str | None,
     debug: bool,
     active_only: bool,
+    uses_native_point_query: bool | None = None,
 ) -> list[Alert]:
     """Implement one point query with any active progress callback."""
     alerts: list[Alert] = []
@@ -96,7 +98,7 @@ def _get_alerts_for_point(
     normalized_country = country_code.strip().upper()
     emit_progress('query_started', country_code=normalized_country, lat=lat, lon=lon)
     sources, selected_lang = _select_alert_sources_for_country(country_code, lang=lang, debug=debug)
-    source_backends = [(source, backend) for source in sources if (backend := get_backend(source)) is not None]
+    source_backends = _source_backends(sources, uses_native_point_query=uses_native_point_query)
     now = _utc_now() if active_only else None
 
     emit_progress('sources_total', total=len(source_backends))
@@ -175,7 +177,7 @@ def _get_alerts_for_point(
             inactive_filtered=inactive_skipped,
         )
 
-    deduped_alerts = _dedupe_point_alerts(alerts)
+    deduped_alerts = deduplicate_alerts(alerts)
 
     if debug:
         if len(deduped_alerts) != len(alerts):
@@ -212,11 +214,13 @@ def get_alerts_for_country(
     active_only: bool = False,
     progress: WarningQueryProgress | None = None,
 ) -> list[Alert]:
-    """Return reusable alert candidates for one country.
+    """Return country-level alert candidates for one country.
 
     This fetches the country-level products of the sources selected for the
-    request, without applying a point filter. The returned alerts are suitable
-    for repeated local calls to :func:`match_alerts_to_point`.
+    request, without applying a point filter. It retains its original broad
+    behaviour and includes native point-query sources; use
+    :func:`get_reusable_alerts_for_country` when candidates will be cached for
+    repeated local calls to :func:`match_alerts_to_point`.
 
     ``progress`` uses the documented country-query events and is called
     synchronously. Callback exceptions are ignored.
@@ -228,17 +232,94 @@ def get_alerts_for_country(
         return _get_alerts_for_country(country_code, lang=lang, active_only=active_only)
 
 
+def get_reusable_alerts_for_country(
+    country_code: str,
+    *,
+    lang: str | None = None,
+    active_only: bool = False,
+    progress: WarningQueryProgress | None = None,
+) -> list[Alert]:
+    """Return country candidates that are safe to cache for local matching.
+
+    Only sources whose backends do not use native point queries are fetched.
+    The returned alerts can be passed to :func:`match_alerts_to_point` for one
+    or more locations. Native point-query results are deliberately excluded;
+    retrieve those for each location with :func:`get_native_alerts_for_point`.
+
+    ``progress`` uses the documented country-query events and is called
+    synchronously. Callback exceptions are ignored.
+    """
+    if progress is None:
+        return _get_alerts_for_country(
+            country_code,
+            lang=lang,
+            active_only=active_only,
+            uses_native_point_query=False,
+        )
+
+    with bind_progress_callback(progress):
+        return _get_alerts_for_country(
+            country_code,
+            lang=lang,
+            active_only=active_only,
+            uses_native_point_query=False,
+        )
+
+
+def get_native_alerts_for_point(
+    lat: float,
+    lon: float,
+    country_code: str,
+    lang: str | None = None,
+    debug: bool = False,
+    active_only: bool = False,
+    progress: WarningQueryProgress | None = None,
+) -> list[Alert]:
+    """Return alerts from only the selected native point-query sources.
+
+    This sends ``lat`` and ``lon`` only to sources whose backend declares
+    ``uses_native_point_query = True``. It is intended to complement cached
+    results from :func:`get_reusable_alerts_for_country`; use
+    :func:`deduplicate_alerts` after combining the two result lists.
+
+    ``progress`` uses the same point-query event contract as
+    :func:`get_alerts_for_point`. Callback exceptions are ignored.
+    """
+    if progress is None:
+        return _get_alerts_for_point(
+            lat,
+            lon,
+            country_code,
+            lang=lang,
+            debug=debug,
+            active_only=active_only,
+            uses_native_point_query=True,
+        )
+
+    with bind_progress_callback(progress):
+        return _get_alerts_for_point(
+            lat,
+            lon,
+            country_code,
+            lang=lang,
+            debug=debug,
+            active_only=active_only,
+            uses_native_point_query=True,
+        )
+
+
 def _get_alerts_for_country(
     country_code: str,
     *,
     lang: str | None,
     active_only: bool,
+    uses_native_point_query: bool | None = None,
 ) -> list[Alert]:
     """Implement one country candidate query with any active progress callback."""
     normalized_country = country_code.strip().upper()
     emit_progress('country_query_started', country_code=normalized_country)
     sources, selected_lang = _select_alert_sources_for_country(country_code, lang=lang, debug=False)
-    source_backends = [(source, backend) for source in sources if (backend := get_backend(source)) is not None]
+    source_backends = _source_backends(sources, uses_native_point_query=uses_native_point_query)
     now = _utc_now() if active_only else None
     candidates: list[Alert] = []
 
@@ -303,7 +384,24 @@ def match_alerts_to_point(
         seen.add(key)
         matches.append(alert)
 
-    return _dedupe_point_alerts(matches)
+    return deduplicate_alerts(matches)
+
+
+def deduplicate_alerts(alerts: Iterable[Alert]) -> list[Alert]:
+    """Return alerts with point-query source and semantic duplicates removed.
+
+    This is useful after combining locally matched reusable candidates with
+    native point-query results. The input is not modified.
+    """
+    unique_ids: list[Alert] = []
+    seen_ids: set[tuple[str, str]] = set()
+    for alert in alerts:
+        key = (alert.source, alert.id)
+        if key in seen_ids:
+            continue
+        seen_ids.add(key)
+        unique_ids.append(alert)
+    return _dedupe_point_alerts(unique_ids)
 
 
 def get_alerts_for_source(
@@ -490,6 +588,26 @@ def _select_alert_sources_for_country(
         if debug:
             logging.warning(message)
         return get_sources_for_country(normalized_country, lang=None), None
+
+
+def _source_backends(
+    sources: list[WarningSource],
+    *,
+    uses_native_point_query: bool | None = None,
+) -> list[tuple[WarningSource, object]]:
+    """Return available backends, optionally filtered by point-query capability."""
+    source_backends: list[tuple[WarningSource, object]] = []
+    for source in sources:
+        backend = get_backend(source)
+        if backend is None:
+            continue
+        if (
+            uses_native_point_query is not None
+            and bool(getattr(backend, 'uses_native_point_query', False)) != uses_native_point_query
+        ):
+            continue
+        source_backends.append((source, backend))
+    return source_backends
 
 
 def _alert_geometry_matches_point(

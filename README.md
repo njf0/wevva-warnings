@@ -48,10 +48,13 @@ wevva-warnings tropical-source nhc_gis_atlantic --formatted
 
 ```python
 from wevva_warnings import (
+    deduplicate_alerts,
     get_alert_sources_for_country,
     get_alerts_for_country,
     get_alerts_for_point,
     get_alerts_for_source,
+    get_native_alerts_for_point,
+    get_reusable_alerts_for_country,
     match_alerts_to_point,
     get_tropical_systems_for_source,
     get_tropical_systems_near,
@@ -68,7 +71,10 @@ Useful lower-level helpers:
 
 - `get_alert_sources_for_country(country_code, lang=None)`
 - `get_alerts_for_country(country_code, lang=None, active_only=False, progress=None)`
+- `get_reusable_alerts_for_country(country_code, lang=None, active_only=False, progress=None)`
+- `get_native_alerts_for_point(lat, lon, country_code, lang=None, debug=False, active_only=False, progress=None)`
 - `match_alerts_to_point(alerts, lat, lon, active_only=False)`
+- `deduplicate_alerts(alerts)`
 - `get_alerts_for_source(source_id, active_only=False)`
 - `get_tropical_systems_for_source(source_id)`
 - `get_tropical_systems_near(lat, lon, radius_km=1000.0)`
@@ -83,7 +89,7 @@ Notes:
 - returned `Alert` and `TropicalSystem` objects include optional `source_info` metadata when produced through the public query helpers
 - tropical-system sources are not currently routed through `country_code` point queries
 
-### Reusable country candidates
+### Reusable country candidates and native point sources
 
 Applications that need to match the same country's warnings to several points
 can fetch candidates once and keep them according to their own cache policy:
@@ -94,10 +100,37 @@ berlin = match_alerts_to_point(candidates, lat=52.52, lon=13.405)
 munich = match_alerts_to_point(candidates, lat=48.137, lon=11.575)
 ```
 
-Candidate retrieval does not guarantee a complete national inventory when an
-upstream provider cannot deliberately provide one. Matching makes no network
-calls, and may populate missing supported geometry on the supplied `Alert`
-objects from packaged geocode data.
+`get_alerts_for_country()` retains its original broad country-feed behaviour,
+including sources that use native point queries. Do not cache its results as
+local geometry candidates when a country has such a source.
+
+For a cache that is safe across locations, use the split helpers instead:
+
+```python
+from wevva_warnings import (
+    deduplicate_alerts,
+    get_native_alerts_for_point,
+    get_reusable_alerts_for_country,
+    match_alerts_to_point,
+)
+
+# Cache by country/language; these are fetched only from non-native backends.
+candidates = get_reusable_alerts_for_country("US", lang="en")
+
+# On every location change, match the cache and fetch only native sources.
+local = match_alerts_to_point(candidates, lat=40.71, lon=-74.00, active_only=True)
+native = get_native_alerts_for_point(40.71, -74.00, "US", lang="en", active_only=True)
+alerts = deduplicate_alerts([*local, *native])
+```
+
+The split is driven by each backend's `uses_native_point_query` capability;
+no provider or country is special-cased. `get_reusable_alerts_for_country()`
+does not fetch native sources, while `get_native_alerts_for_point()` does not
+fetch reusable sources. Matching makes no network calls and may populate
+missing supported geometry on supplied `Alert` objects from packaged geocode
+data. Cache candidates without `active_only` if they will be matched at
+different times, then apply `active_only=True` during local matching and the
+native request.
 
 ### Point-query progress
 

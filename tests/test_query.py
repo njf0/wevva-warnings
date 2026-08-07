@@ -7,7 +7,15 @@ import unittest
 from unittest.mock import patch
 import warnings
 
-from wevva_warnings import WarningQueryProgress, get_alert_sources_for_country, get_alerts_for_country, match_alerts_to_point
+from wevva_warnings import (
+    WarningQueryProgress,
+    deduplicate_alerts,
+    get_alert_sources_for_country,
+    get_alerts_for_country,
+    get_native_alerts_for_point,
+    get_reusable_alerts_for_country,
+    match_alerts_to_point,
+)
 from wevva_warnings.models import Alert, TropicalSystem
 from wevva_warnings.query import (
     get_alerts_for_point,
@@ -337,6 +345,147 @@ class QueryTests(unittest.TestCase):
 
         self.assertEqual(backend.kwargs, {'lang': None, 'debug': False})
         self.assertEqual([alert.id for alert in matches], ['national-alert'])
+
+    def test_split_candidate_queries_use_only_their_backend_capability(self) -> None:
+        reusable_source = WarningSource(
+            id='reusable',
+            name='Reusable Weather Service',
+            backend='reusable',
+            country_code='MX',
+            url='https://example.test/reusable',
+            lang='en',
+        )
+        native_source = WarningSource(
+            id='native',
+            name='Native Weather Service',
+            backend='native',
+            country_code='MX',
+            url='https://example.test/native',
+            lang='en',
+        )
+        reusable_alert = Alert(
+            id='reusable-alert',
+            source='reusable',
+            event='Rain warning',
+            headline='Reusable rain warning',
+            geometry={
+                'type': 'Polygon',
+                'coordinates': [[[24.0, 60.0], [25.0, 60.0], [25.0, 61.0], [24.0, 61.0], [24.0, 60.0]]],
+            },
+        )
+        native_alert = Alert(
+            id='native-alert',
+            source='native',
+            event='Wind warning',
+            headline='Native wind warning',
+        )
+
+        class ReusableBackend:
+            uses_native_point_query = False
+
+            def __init__(self) -> None:
+                self.calls: list[dict[str, object]] = []
+
+            def fetch_alerts(self, source, **kwargs):
+                del source
+                self.calls.append(kwargs)
+                return [reusable_alert]
+
+        class NativeBackend:
+            uses_native_point_query = True
+
+            def __init__(self) -> None:
+                self.calls: list[dict[str, object]] = []
+
+            def fetch_alerts(self, source, **kwargs):
+                del source
+                self.calls.append(kwargs)
+                return [native_alert]
+
+        reusable_backend = ReusableBackend()
+        native_backend = NativeBackend()
+
+        def backend_for(source):
+            return {'reusable': reusable_backend, 'native': native_backend}[source.id]
+
+        with (
+            patch('wevva_warnings.query.get_sources_for_country', return_value=[reusable_source, native_source]),
+            patch('wevva_warnings.query.get_backend', side_effect=backend_for),
+        ):
+            candidates = get_reusable_alerts_for_country('MX', lang='en')
+            local_matches = match_alerts_to_point(candidates, lat=60.5, lon=24.5)
+            native_matches = get_native_alerts_for_point(60.5, 24.5, 'MX', lang='en')
+            combined = deduplicate_alerts([*local_matches, *native_matches])
+
+        self.assertEqual([alert.id for alert in candidates], ['reusable-alert'])
+        self.assertEqual(reusable_backend.calls, [{'lang': 'en', 'debug': False}])
+        self.assertEqual(native_backend.calls, [{'lat': 60.5, 'lon': 24.5, 'lang': 'en', 'debug': False}])
+        self.assertEqual([alert.id for alert in combined], ['reusable-alert', 'native-alert'])
+
+    def test_split_candidate_queries_honour_active_only_and_filtered_progress(self) -> None:
+        now = datetime(2026, 3, 12, 12, 0, tzinfo=UTC)
+        reusable_source = WarningSource('reusable', 'Reusable', 'reusable', 'MX', 'https://example.test/reusable', 'en')
+        native_source = WarningSource('native', 'Native', 'native', 'MX', 'https://example.test/native', 'en')
+
+        class ReusableBackend:
+            uses_native_point_query = False
+
+            def fetch_alerts(self, source, **kwargs):
+                del source, kwargs
+                return [
+                    Alert(
+                        id='future', source='reusable', event='Rain', headline='Future rain',
+                        onset=datetime(2026, 3, 13, 12, 0, tzinfo=UTC),
+                    ),
+                ]
+
+        class NativeBackend:
+            uses_native_point_query = True
+
+            def fetch_alerts(self, source, **kwargs):
+                del source, kwargs
+                return [
+                    Alert(
+                        id='current', source='native', event='Wind', headline='Current wind',
+                        onset=datetime(2026, 3, 11, 12, 0, tzinfo=UTC),
+                        expires=datetime(2026, 3, 13, 12, 0, tzinfo=UTC),
+                    ),
+                ]
+
+        def backend_for(source):
+            return {'reusable': ReusableBackend(), 'native': NativeBackend()}[source.id]
+
+        reusable_events: list[tuple[str, dict[str, object]]] = []
+        native_events: list[tuple[str, dict[str, object]]] = []
+        with (
+            patch('wevva_warnings.query.get_sources_for_country', return_value=[reusable_source, native_source]),
+            patch('wevva_warnings.query.get_backend', side_effect=backend_for),
+            patch('wevva_warnings.query._utc_now', return_value=now),
+        ):
+            reusable = get_reusable_alerts_for_country(
+                'MX', active_only=True, progress=lambda event, payload: reusable_events.append((event, payload))
+            )
+            native = get_native_alerts_for_point(
+                60.5, 24.5, 'MX', active_only=True, progress=lambda event, payload: native_events.append((event, payload))
+            )
+
+        self.assertEqual(reusable, [])
+        self.assertEqual([alert.id for alert in native], ['current'])
+        self.assertEqual(reusable_events[1], ('sources_total', {'total': 1}))
+        self.assertEqual(reusable_events[2][1]['source'], 'reusable')
+        self.assertEqual(reusable_events[-1], ('country_finished', {'alert_count': 0}))
+        self.assertEqual(native_events[1], ('sources_total', {'total': 1}))
+        self.assertEqual(native_events[2][1]['source'], 'native')
+        self.assertEqual(native_events[-1], ('finished', {'alert_count': 1}))
+
+    def test_deduplicate_alerts_uses_point_query_rules(self) -> None:
+        first = Alert(id='one', source='example', event='Wind', headline='Wind warning')
+        repeated_id = Alert(id='one', source='example', event='Updated wind', headline='Updated warning')
+        semantic_duplicate = Alert(id='two', source='example', event='Wind', headline='Wind warning')
+
+        alerts = deduplicate_alerts([first, repeated_id, semantic_duplicate])
+
+        self.assertEqual(alerts, [first])
 
     def test_country_and_local_matching_honour_active_only(self) -> None:
         now = datetime(2026, 3, 12, 12, 0, tzinfo=UTC)
