@@ -7,9 +7,11 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
+from wevva_warnings import match_alerts_to_point
 from wevva_warnings.backends.aemet import AEMETBackend
 from wevva_warnings.backends.anmeteo import ANMETEOBackend
 from wevva_warnings.backends.bahrain import BahrainBackend
+from wevva_warnings.backends.base import BackendError
 from wevva_warnings.backends.bmkg import BMKGBackend
 from wevva_warnings.backends.dirmet_cg import DirmetCGBackend
 from wevva_warnings.backends.dwd import DWDBackend
@@ -950,6 +952,138 @@ SWIC_FEED = """\
     </item>
   </channel>
 </rss>
+"""
+
+SWIC_CMA_FEED = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>Typhoon red warning</title>
+      <link>https://severeweather.wmo.int/v2/cap-alerts/cn-cma-xx/2026/08/08/13/38/00-cma-demo.xml</link>
+      <guid isPermaLink="false">ChinaCMA-330212-2026-08-08T13:38:00+00:00</guid>
+    </item>
+  </channel>
+</rss>
+"""
+
+SWIC_CMA_CAP_WITHOUT_GEOMETRY = """\
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>cma-geometryless</identifier>
+  <info>
+    <language>en</language>
+    <event>Typhoon</event>
+    <headline>Typhoon red warning</headline>
+    <severity>Extreme</severity>
+    <expires>2000-01-01T00:00:00Z</expires>
+    <area>
+      <areaDesc>Yinzhou District</areaDesc>
+      <geocode>
+        <valueName>CPEAS Geographic Code</valueName>
+        <value>330212007000</value>
+      </geocode>
+    </area>
+  </info>
+  <info>
+    <language>zh</language>
+    <event>台风</event>
+    <headline>台风红色预警</headline>
+    <severity>Extreme</severity>
+    <area><areaDesc>鄞州区</areaDesc></area>
+  </info>
+</alert>
+"""
+
+SWIC_CMA_WFS_FEATURES = {
+    'type': 'FeatureCollection',
+    'features': [
+        {
+            'type': 'Feature',
+            'properties': {
+                'capurl': 'cn-cma-xx/2026/08/08/13/38/00-cma-demo.xml',
+                'file_name': 'china.geojson',
+            },
+            'geometry': {
+                'type': 'Polygon',
+                'coordinates': [
+                    [
+                        [121.50, 29.80],
+                        [121.58, 29.80],
+                        [121.58, 29.86],
+                        [121.50, 29.86],
+                        [121.50, 29.80],
+                    ]
+                ],
+            },
+        },
+        {
+            'type': 'Feature',
+            'properties': {
+                'capurl': 'cn-cma-xx/2026/08/08/13/38/00-cma-demo.xml',
+                'file_name': 'china.geojson',
+            },
+            'geometry': {
+                'type': 'Polygon',
+                'coordinates': [
+                    [
+                        [121.60, 29.80],
+                        [121.66, 29.80],
+                        [121.66, 29.86],
+                        [121.60, 29.86],
+                        [121.60, 29.80],
+                    ]
+                ],
+            },
+        },
+        {
+            'type': 'Feature',
+            'properties': {'capurl': 'cn-cma-xx/2026/08/08/13/38/00-unrelated.xml'},
+            'geometry': {
+                'type': 'Polygon',
+                'coordinates': [
+                    [
+                        [121.50, 29.80],
+                        [121.58, 29.80],
+                        [121.58, 29.86],
+                        [121.50, 29.86],
+                        [121.50, 29.80],
+                    ]
+                ],
+            },
+        },
+    ],
+}
+
+SWIC_BOM_AMOC_FEED = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>BoM warning without CAP polygon</title>
+      <link>https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/2026/08/09/16/00/00-bom-amoc-demo.xml</link>
+      <guid isPermaLink="false">AusBoM-IDN10000-2026-08-09T16:00:00+00:00</guid>
+    </item>
+  </channel>
+</rss>
+"""
+
+SWIC_BOM_CAP_WITH_AMOC_GEOCODE = """\
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>bom-amoc-geometry</identifier>
+  <info>
+    <language>en</language>
+    <event>Severe weather warning</event>
+    <headline>BoM warning resolved locally</headline>
+    <severity>Moderate</severity>
+    <area>
+      <areaDesc>New South Wales</areaDesc>
+      <geocode>
+        <valueName>AMOC-AreaCode</valueName>
+        <value>NSW_ME001</value>
+      </geocode>
+    </area>
+  </info>
+</alert>
 """
 
 METEO_KE_FEED = """\
@@ -1968,6 +2102,142 @@ class ProviderBackendTests(unittest.TestCase):
         self.assertIn(latest_url, requested_urls)
         self.assertIn(other_url, requested_urls)
         self.assertNotIn(older_url, requested_urls)
+
+    def test_swic_mirror_backfills_geometryless_cap_from_exact_wfs_capurl(self) -> None:
+        backend = SWICMirrorBackend()
+        source = get_source('cma')
+        assert source is not None
+        alert_url = 'https://severeweather.wmo.int/v2/cap-alerts/cn-cma-xx/2026/08/08/13/38/00-cma-demo.xml'
+
+        def fake_fetch_text(url: str, **_: object) -> str:
+            return {
+                source.url: SWIC_CMA_FEED,
+                alert_url: SWIC_CMA_CAP_WITHOUT_GEOMETRY,
+            }[url]
+
+        with (
+            patch('wevva_warnings.backends._cap_feed.fetch_text', side_effect=fake_fetch_text),
+            patch('wevva_warnings.backends.swic_mirror.fetch_json', return_value=SWIC_CMA_WFS_FEATURES) as fetch_json,
+        ):
+            alerts = backend.fetch_alerts(source, lang='en')
+
+        self.assertEqual([alert.id for alert in alerts], ['cma-geometryless'])
+        self.assertEqual(alerts[0].headline, 'Typhoon red warning')
+        self.assertEqual(alerts[0].geocodes, {'CPEAS Geographic Code': ['330212007000']})
+        self.assertEqual(alerts[0].geometry['type'], 'MultiPolygon')
+        self.assertEqual(len(alerts[0].geometry['coordinates']), 2)
+        self.assertEqual(alerts[0].geometry['bbox'], [121.5, 29.8, 121.66, 29.86])
+        self.assertEqual(alerts[0].parameters['Geometry source'], ['WMO SWIC WFS'])
+        self.assertEqual(alerts[0].parameters['WMO SWIC geometry file'], ['china.geojson'])
+        self.assertEqual(
+            [alert.id for alert in match_alerts_to_point(alerts, lat=29.82, lon=121.54)],
+            ['cma-geometryless'],
+        )
+        self.assertEqual(match_alerts_to_point(alerts, lat=29.82, lon=121.59), [])
+        self.assertEqual(match_alerts_to_point(alerts, lat=29.82, lon=121.54, active_only=True), [])
+        self.assertEqual(
+            fetch_json.call_args.kwargs['params']['cql_filter'],
+            "capurl = 'cn-cma-xx/2026/08/08/13/38/00-cma-demo.xml'",
+        )
+
+    def test_swic_mirror_prefers_packaged_geocode_geometry_over_wfs(self) -> None:
+        backend = SWICMirrorBackend()
+        source = get_source('bom')
+        assert source is not None
+        alert_url = 'https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/2026/08/09/16/00/00-bom-amoc-demo.xml'
+
+        def fake_fetch_text(url: str, **_: object) -> str:
+            return {
+                source.url: SWIC_BOM_AMOC_FEED,
+                alert_url: SWIC_BOM_CAP_WITH_AMOC_GEOCODE,
+            }[url]
+
+        with (
+            patch('wevva_warnings.backends._cap_feed.fetch_text', side_effect=fake_fetch_text),
+            patch('wevva_warnings.backends.swic_mirror.fetch_json') as fetch_json,
+        ):
+            alerts = backend.fetch_alerts(source)
+
+        self.assertEqual([alert.id for alert in alerts], ['bom-amoc-geometry'])
+        self.assertIn(alerts[0].geometry['type'], {'Polygon', 'MultiPolygon'})
+        self.assertNotIn('Geometry source', alerts[0].parameters)
+        fetch_json.assert_not_called()
+
+    def test_swic_mirror_returns_cap_alert_when_wfs_is_unavailable(self) -> None:
+        backend = SWICMirrorBackend()
+        source = get_source('cma')
+        assert source is not None
+        alert_url = 'https://severeweather.wmo.int/v2/cap-alerts/cn-cma-xx/2026/08/08/13/38/00-cma-demo.xml'
+
+        def fake_fetch_text(url: str, **_: object) -> str:
+            return {
+                source.url: SWIC_CMA_FEED,
+                alert_url: SWIC_CMA_CAP_WITHOUT_GEOMETRY,
+            }[url]
+
+        with (
+            patch('wevva_warnings.backends._cap_feed.fetch_text', side_effect=fake_fetch_text),
+            patch('wevva_warnings.backends.swic_mirror.fetch_json', side_effect=BackendError('unavailable')) as fetch_json,
+        ):
+            alerts = backend.fetch_alerts(source)
+
+        self.assertEqual([alert.id for alert in alerts], ['cma-geometryless'])
+        self.assertIsNone(alerts[0].geometry)
+        self.assertNotIn('Geometry source', alerts[0].parameters)
+        fetch_json.assert_called_once()
+
+    def test_swic_mirror_keeps_cap_geometry_when_wfs_has_a_match(self) -> None:
+        backend = SWICMirrorBackend()
+        source = get_source('bom')
+        assert source is not None
+        alert_url = 'https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/2026/04/18/12/00/23-latest.xml'
+
+        def fake_fetch_text(url: str, **_: object) -> str:
+            return {
+                source.url: SWIC_FEED,
+                alert_url: CAP_ALERT.format(
+                    identifier='swic-cap-geometry',
+                    language='en',
+                    event='Wind',
+                    headline='CAP geometry wins',
+                    area='Victoria',
+                    polygon='-38.0,144.0 -37.9,144.2 -37.8,144.0 -38.0,144.0',
+                    area_extras='',
+                    extra_areas='',
+                ),
+                'https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/2026/04/18/10/45/38-other.xml': CAP_ALERT.format(
+                    identifier='swic-other',
+                    language='en',
+                    event='Graziers',
+                    headline='Different family',
+                    area='Victoria',
+                    polygon='-38.1,144.1 -38.0,144.3 -37.9,144.1 -38.1,144.1',
+                    area_extras='',
+                    extra_areas='',
+                ),
+            }[url]
+
+        wfs_features = {
+            'features': [
+                {
+                    'properties': {'capurl': 'au-bom-en/2026/04/18/12/00/23-latest.xml'},
+                    'geometry': {
+                        'type': 'Polygon',
+                        'coordinates': [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+                    },
+                }
+            ]
+        }
+        with (
+            patch('wevva_warnings.backends._cap_feed.fetch_text', side_effect=fake_fetch_text),
+            patch('wevva_warnings.backends.swic_mirror.fetch_json', return_value=wfs_features) as fetch_json,
+        ):
+            alerts = backend.fetch_alerts(source)
+
+        self.assertEqual(alerts[0].id, 'swic-cap-geometry')
+        self.assertEqual(alerts[0].geometry['coordinates'][0][0], [144.0, -38.0])
+        self.assertNotIn('Geometry source', alerts[0].parameters)
+        fetch_json.assert_not_called()
 
     def test_meteoliberia_backend_fetches_direct_cap_documents(self) -> None:
         backend = MeteoLiberiaBackend()

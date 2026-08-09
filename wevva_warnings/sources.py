@@ -283,7 +283,7 @@ SOURCES: tuple[WarningSource, ...] = (
         country_code='AU',
         url='https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/rss.xml',
         lang='en',
-        notes='Official BoM public alert feed mirrored through the WMO Severe Weather Information Centre, with linked CAP XML alerts.',
+        notes='Official BoM public alert feed mirrored through the WMO Severe Weather Information Centre, with linked CAP XML alerts, packaged geocode geometry, and WMO map-geometry backfill only when needed.',
     ),
     WarningSource(
         id='belgidromet_en',
@@ -391,7 +391,7 @@ SOURCES: tuple[WarningSource, ...] = (
         country_code='CN',
         url='https://severeweather.wmo.int/v2/cap-alerts/cn-cma-xx/rss.xml',
         lang='en',
-        notes='Official CMA public alert feed mirrored through the WMO Severe Weather Information Centre, with linked CAP XML alerts.',
+        notes='Official CMA public alert feed mirrored through the WMO Severe Weather Information Centre, with linked CAP XML alerts and WMO map-geometry backfill when CAP lacks polygons.',
     ),
     WarningSource(
         id='dmn_car',

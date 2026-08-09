@@ -123,6 +123,11 @@ native = get_native_alerts_for_point(40.71, -74.00, "US", lang="en", active_only
 alerts = deduplicate_alerts([*local, *native])
 ```
 
+Some country feeds arrive with administrative area codes but no CAP polygon.
+Where a backend has a documented source-side geometry backfill, it is applied
+while fetching these reusable candidates; later local matching and caching do
+not make a boundary request.
+
 The split is driven by each backend's `uses_native_point_query` capability;
 no provider or country is special-cased. `get_reusable_alerts_for_country()`
 does not fetch native sources, while `get_native_alerts_for_point()` does not

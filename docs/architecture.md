@@ -136,6 +136,15 @@ artifacts only: Meteoalarm EMMA IDs and aliases, Australian BoM
 `AMOC-AreaCode`, and JMA area codes. It does not make runtime requests for
 boundaries. The build scripts in `scripts/` produce those artifacts.
 
+The `swic_mirror` backend has a separate fetch-time enrichment for a SWIC map
+source: after CAP parsing, it first resolves supported packaged geocodes, then
+may use WMO's WFS map data to backfill geometry still missing. It joins only
+on the exact CAP URL selected from that source's RSS feed, preserves a
+CAP-provided or packaged polygon, and records WFS provenance in
+`Alert.parameters`. This is neither geocoding nor point matching: once the
+alert has been returned, `match_alerts_to_point()` remains local and makes no
+network request.
+
 ## Providers
 
 `sources.py` is the source-of-truth inventory: at the time this document was
@@ -148,7 +157,7 @@ The provider implementations fall into these concrete families:
 | Family | Current implementations | Behaviour and provider-specific boundary |
 | --- | --- | --- |
 | Native JSON point query | `nws` | Sends the point upstream and maps NWS GeoJSON features directly. The query layer trusts its native spatial filtering. |
-| Structured or product-specific feeds | `geomet`, `ea_flood`, `hko`, `hydromet_guyana`, `meteoalarm_atom`, `nhc_gis`, `jma`, `jma_tropical` | Parse provider JSON/XML, RSS/Atom or GIS products directly. These adapters hold the source-specific field, URL, geometry, revision, or product-selection rules. `nhc_gis` and `jma_tropical` produce `TropicalSystem`. |
+| Structured or product-specific feeds | `geomet`, `ea_flood`, `hko`, `hydromet_guyana`, `meteoalarm_atom`, `nhc_gis`, `jma`, `jma_tropical`, `swic_mirror` | Parse provider JSON/XML, RSS/Atom or GIS products directly. These adapters hold the source-specific field, URL, geometry, revision, or product-selection rules. `swic_mirror` can add a matching WMO map polygon when CAP has none. `nhc_gis` and `jma_tropical` produce `TropicalSystem`. |
 | Generic CAP | `generic_cap` (18 registered sources) | Accepts direct CAP, embedded CAP, RSS, or Atom and follows likely CAP links. Use only when the feed's link discovery works without provider rules. |
 | Focused CAP feed adapters | the remaining alert backends | Fetch a provider feed, select the provider's CAP URLs, then use `_cap_feed.fetch_cap_documents()` and `cap.parse_cap_alert()`. Their small differences are intentional: link location/type, language, fixed or query-style URLs, archive/revision filtering, and area-name cleanup vary by provider. |
 
