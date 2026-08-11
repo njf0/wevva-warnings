@@ -10,8 +10,8 @@ Proposed
 
 ## Context
 
-`wevva-warnings` now has seven official tropical-system sources: NHC/CPHC,
-JMA, BoM, HKO, and Météo-France La Réunion. The public
+`wevva-warnings` now has nine official tropical-system sources: NHC/CPHC,
+JMA, CMA/NMC, PAGASA, BoM, HKO, and Météo-France La Réunion. The public
 `get_tropical_systems_near()` helper returns a system when its current centre
 is within a caller-selected radius or the requested point is contained in a
 provider-supplied polygonal layer.

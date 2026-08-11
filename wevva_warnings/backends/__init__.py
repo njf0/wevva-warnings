@@ -8,6 +8,7 @@ from .belgidromet import BelgidrometBackend
 from .bmkg import BMKGBackend
 from .bom_tropical import BoMTropicalBackend
 from .capews import CAPEWSBackend
+from .cma_tropical import CMATropicalBackend
 from .dms_botswana import DMSBotswanaBackend
 from .dmh_myanmar import DMHMyanmarBackend
 from .dmh_py import DMHParaguayBackend
@@ -71,6 +72,7 @@ from .nms_belize import NMSBelizeBackend
 from .nve import NVEBackend
 from .nws import NWSBackend
 from .pagasa import PAGASABackend
+from .pagasa_tropical import PAGASATropicalBackend
 from .saint_lucia import SaintLuciaBackend
 from .slmet import SLMETBackend
 from .smg import SMGBackend
@@ -97,6 +99,7 @@ __all__ = [
     'BMKGBackend',
     'BoMTropicalBackend',
     'CAPEWSBackend',
+    'CMATropicalBackend',
     'DMSBotswanaBackend',
     'DMHMyanmarBackend',
     'DMHParaguayBackend',
@@ -160,6 +163,7 @@ __all__ = [
     'NVEBackend',
     'NWSBackend',
     'PAGASABackend',
+    'PAGASATropicalBackend',
     'SaintLuciaBackend',
     'SLMETBackend',
     'SMGBackend',

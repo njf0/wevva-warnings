@@ -113,7 +113,7 @@ the historical exploration note.
 ## Outcome
 
 The initial documentation pass completed on 2026-08-11. `README.md` and
-`docs/architecture.md` describe the separate tropical query path, seven
+`docs/architecture.md` describe the separate tropical query path, nine
 registered sources, basin coverage, the distinction between descriptive tracks
 and official impact polygons, and source-specific metadata retained by HKO,
 NHC, JMA, and Météo-France La Réunion. The exploratory note was folded into

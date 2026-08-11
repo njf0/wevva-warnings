@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Partially completed
 
 ## Target repository
 
@@ -10,14 +10,18 @@ Proposed
 
 ## Context
 
-The library now has working tropical-system adapters for NHC/CPHC, JMA, BoM,
-HKO, and Météo-France La Réunion. They are fixture-tested and selected live
-endpoints have been smoke-tested, but several useful products are inherently
-seasonal or only appear for certain storm stages.
+The library now has working tropical-system adapters for NHC/CPHC, JMA,
+CMA/NMC, PAGASA, BoM, HKO, and Météo-France La Réunion. They are fixture-tested
+and selected live endpoints have been smoke-tested, but several useful products
+are inherently seasonal or only appear for certain storm stages.
 
 Fiji Meteorological Service remains a promising Southwest Pacific candidate.
 Its current official track page was reachable but server-rendered no system
 data while inactive; no stable active structured payload has yet been captured.
+Météo-France Nouvelle-Calédonie is a separate local Southwest Pacific
+candidate: its official cyclone page similarly gives an explicit no-phenomenon
+state while inactive, and its active-system detail request has not yet been
+captured. Neither is a registered source yet.
 NHC also advertises a wind-field GIS asset whose link is retained but whose
 format and threshold semantics are not yet normalized.
 
@@ -44,10 +48,11 @@ official payload validates their operational shape.
 - For NHC, inspect one official wind-field asset and decide whether it can be
   represented as named thresholded geometry without conflating it with a
   watch/warning. If so, complete the remaining scope of task 0005.
-- For Fiji, identify the actual active-system request/payload from its current
-  official site, verify it survives more than one update, and make a clear
-  go/no-go decision for a focused source. If it is not reliably obtainable,
-  document the blocker and leave it unregistered.
+- For Fiji and Météo-France Nouvelle-Calédonie, identify the actual
+  active-system request/payload from each current official site, verify it
+  survives more than one update, and make a clear go/no-go decision for each
+  focused source. If one is not reliably obtainable, document the blocker and
+  leave it unregistered.
 - Evaluate other RSMC/TCWC candidates one at a time with the same standard;
   record a separate implementation task only after a go decision.
 
@@ -66,6 +71,8 @@ official payload validates their operational shape.
 - `wevva_warnings/backends/hko.py`
 - `wevva_warnings/backends/meteofrance_reunion_tropical.py`
 - `wevva_warnings/backends/jma_tropical.py`
+- `wevva_warnings/backends/cma_tropical.py`
+- `wevva_warnings/backends/pagasa_tropical.py`
 - `wevva_warnings/backends/bom_tropical.py`
 - `wevva_warnings/sources.py`
 - `tests/test_provider_backends.py`
@@ -92,8 +99,8 @@ official payload validates their operational shape.
 - New parsing is covered by deterministic fixtures and does not add a live
   test dependency.
 - A missing optional enrichment cannot hide an otherwise valid current system.
-- Fiji is either represented by a verified focused backend or has a clear,
-  current documented no-go reason.
+- Fiji and Météo-France Nouvelle-Calédonie are each represented by a verified
+  focused backend or have a clear, current documented no-go reason.
 - NHC wind fields are either semantically represented with their threshold or
   explicitly left as source URLs.
 
@@ -108,9 +115,56 @@ official payload validates their operational shape.
 
 - A quiet source during the off-season is normal; it is not evidence that the
   endpoint or parser is broken.
-- Prefer deferral over a brittle source. The existing seven-source baseline is
+- Prefer deferral over a brittle source. The existing nine-source baseline is
   more useful than unverified nominal coverage.
 
 ## Outcome
 
-Not started.
+On 2026-08-11, the China Meteorological Administration / National
+Meteorological Center candidate was verified and implemented as
+`cma_tropical`.
+
+- The official NMC Typhoon Network's public list endpoint is
+  `https://typhoon.nmc.cn/weatherservice/typhoon/jsons/list_default`; it
+  returns JSONP entries with a lifecycle `start` or `stop` marker and a stable
+  internal ID.
+- Its corresponding `view_<internal-id>` endpoint supplies a current-analysis
+  history with timestamp, classification code, centre, pressure, wind,
+  direction, speed, current wind radii, and forecast-agency data.
+- The focused adapter deliberately returns only `start` entries, chooses the
+  newest observation, maps compact current facts, and preserves native code
+  and wind-radii values. It does not infer warning geometry or make long
+  tracks a new public surface.
+- Fixture tests cover the JSONP wrapper, stopped-system exclusion, latest
+  observation, Chinese fallback name, malformed detail, and source metadata.
+
+On 2026-08-11, one further evidence-backed source was implemented.
+
+- `pagasa_tropical` reads PAGASA's current Tropical Cyclone Bulletin page at
+  `https://www.pagasa.dost.gov.ph/index.php/tropical-cyclone/severe-weather-bulletin/1`.
+  It accepts an active rendered bulletin only and returns the named system,
+  issue time, centre, wind, pressure, motion and wind extent when published.
+  PAGASA explicitly renders a no-active-system message between events and
+  keeps recent PDF bulletins as archive links; the adapter recognizes that
+  state and never returns an archived storm as current.
+- Deterministic tests cover active-vs-inactive selection, normalisation of all
+  common current fields, source metadata, and the explicit archive guard.
+
+The remaining task scope concerns NHC wind fields and two deliberately
+deferred Southwest Pacific investigations. One further RSMC/TCWC review has
+also produced a positive implementation decision:
+
+- **BMKG / TCWC Jakarta:** the 2026-08-11 review found a genuine public,
+  machine-readable current-system service behind BMKG's official tropical
+  cyclone application. It exposes current/lifecycle flags, system IDs and
+  names, analysed and forecast GeoJSON points, pressure, winds, category,
+  analysis time, uncertainty, and quadrants. This is a positive go decision;
+  implementation details and fixture requirements are recorded separately in
+  `docs/tasks/0014-add-bmkg-tcwc-jakarta-tropical-source.md`.
+
+- **Fiji Meteorological Service:** capture the active-system request and
+  payload from the current official track site during an event, then verify
+  that it remains stable across updates before designing a source.
+- **Météo-France Nouvelle-Calédonie:** capture the active-system detail
+  request behind `https://meteo.nc/fr/cyclone`; its inactive page currently
+  exposes only a no-phenomenon state, so no parsing contract should be guessed.

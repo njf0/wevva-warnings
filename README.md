@@ -194,12 +194,12 @@ Useful flags:
 
 ## Source registry
 
-There are currently **169** registered sources in the built-in registry:
-**162** alert sources and **7** tropical-system sources. Tropical-system
-coverage includes the NHC/CPHC, JMA and HKO Northwest Pacific products, BoM's
-Australian-region track products, and Météo-France La Réunion's Southwest
-Indian Ocean RSMC data. Use the separate tropical queries because these are
-not country-routed warning feeds.
+There are currently **171** registered sources in the built-in registry:
+**162** alert sources and **9** tropical-system sources. Tropical-system
+coverage includes the NHC/CPHC, JMA, CMA/NMC, HKO and PAGASA Northwest Pacific
+products; BoM's Australian-region track products; and Météo-France La
+Réunion's Southwest Indian Ocean RSMC data. Use the separate tropical queries
+because these are not country-routed warning feeds.
 For the full current list, use:
 
 ```bash
