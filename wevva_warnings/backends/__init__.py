@@ -6,6 +6,7 @@ from .base import WarningBackend
 from .bahrain import BahrainBackend
 from .belgidromet import BelgidrometBackend
 from .bmkg import BMKGBackend
+from .bom_tropical import BoMTropicalBackend
 from .capews import CAPEWSBackend
 from .dms_botswana import DMSBotswanaBackend
 from .dmh_myanmar import DMHMyanmarBackend
@@ -61,6 +62,7 @@ from .meteotchad import MeteoTchadBackend
 from .meteotogo import MeteoTogoBackend
 from .met_no import METNorwayBackend
 from .meteoalarm_atom import MeteoAlarmAtomBackend
+from .meteofrance_reunion_tropical import MeteoFranceReunionTropicalBackend
 from .metmalawi import MetMalawiBackend
 from .mms import MMSBackend
 from .msj import MSJBackend
@@ -93,6 +95,7 @@ __all__ = [
     'BahrainBackend',
     'BelgidrometBackend',
     'BMKGBackend',
+    'BoMTropicalBackend',
     'CAPEWSBackend',
     'DMSBotswanaBackend',
     'DMHMyanmarBackend',
@@ -148,6 +151,7 @@ __all__ = [
     'MeteoTogoBackend',
     'METNorwayBackend',
     'MeteoAlarmAtomBackend',
+    'MeteoFranceReunionTropicalBackend',
     'MetMalawiBackend',
     'MMSBackend',
     'MSJBackend',

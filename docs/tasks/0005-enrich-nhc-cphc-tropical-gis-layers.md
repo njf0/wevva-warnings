@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Partially completed
 
 ## Target repository
 
@@ -68,7 +68,7 @@ advisory intensity fields where the XML explicitly provides them.
 - `wevva_warnings/models.py`
 - `wevva_warnings/geometry.py`
 - `tests/test_provider_backends.py` and NHC GIS fixtures
-- `README.md`, `docs/architecture.md`, and `TROPICAL_SYSTEMS.md`
+- `README.md` and `docs/architecture.md`
 
 ## Approach
 
@@ -116,4 +116,24 @@ advisory intensity fields where the XML explicitly provides them.
 
 ## Outcome
 
-Not started.
+The advisory-XML portion completed on 2026-08-11. When the GIS RSS feed links
+an `ATCF XML Prototype` document, the backend fetches it best-effort and now
+preserves:
+
+- `TropicalSystem.max_wind`, using the explicitly labelled official intensity
+  values;
+- Saffir-Simpson category;
+- the two official nearby-location references; and
+- a compact current watch/warning paragraph.
+
+The request is optional: a missing or malformed advisory XML never suppresses
+the RSS summary, existing geometry layers, or the storm object. Deterministic
+fixtures cover successful enrichment and existing tests continue to cover the
+unchanged track, cone, and watch/warning geometry.
+
+The remaining scope is deliberately narrowed to **wind-field geometry and its
+threshold metadata**. Do not treat that as already supported merely because
+the raw asset URL is retained in `data_urls`; implement it only after a
+representative official shapefile/KMZ is checked and its semantic labels can
+be preserved. Task 0013 records the live-event validation needed before that
+work is started.

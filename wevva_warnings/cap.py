@@ -50,10 +50,12 @@ def parse_cap_alert(
             (node for node in root.iter() if isinstance(node.tag, str) and _local_name(node.tag) == 'alert'),
             None,
         )
-        if root is None:
-            return None
+    if root is None:
+        return None
 
     identifier = _child_text(root, 'identifier') or ''
+    if (_child_text(root, 'msgType') or '').strip().lower() == 'cancel':
+        return None
     info = _select_info_block(root, preferred_lang=preferred_lang)
     if info is None:
         return None

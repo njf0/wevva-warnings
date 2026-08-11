@@ -2,7 +2,7 @@
 
 ## Status
 
-Blocked by task 0007 decision
+Completed
 
 ## Target repository
 
@@ -65,7 +65,7 @@ provide.
 - one new focused backend module
 - `wevva_warnings/models.py` and `wevva_warnings/query.py`
 - `tests/test_provider_backends.py`, `tests/test_registry.py`, and fixtures
-- `README.md`, `docs/architecture.md`, and `TROPICAL_SYSTEMS.md`
+- `README.md` and `docs/architecture.md`
 
 ## Approach
 
@@ -112,4 +112,13 @@ provide.
 
 ## Outcome
 
-Not started.
+Completed on 2026-08-11 with the `bom_tropical` source and focused
+`BoMTropicalBackend`.
+
+It reads the BoM public FTP directory, fetches only documented current
+forecast-track GML filenames, and returns one newest `TropicalSystem` per BoM
+disturbance ID. It exposes the current centre, category, issue time, GML URL,
+and labelled forecast-track, watch-area, warning-area, forecast-area and
+wind-area geometries when present. The fixture verifies the public source,
+deduplication, centre and geometry semantics; this remains a separate tropical
+query source rather than an Australian country-alert provider.

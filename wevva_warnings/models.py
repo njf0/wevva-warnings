@@ -161,6 +161,7 @@ def _summarize_source_info(source_info: WarningSource | None) -> dict[str, str |
         'id': getattr(source_info, 'id', None),
         'name': getattr(source_info, 'name', None),
         'country_code': getattr(source_info, 'country_code', None),
+        'issuer_country_code': getattr(source_info, 'issuer_country_code', None),
         'lang': getattr(source_info, 'lang', None),
         'kind': getattr(source_info, 'kind', None),
     }

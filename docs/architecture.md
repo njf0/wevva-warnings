@@ -79,7 +79,34 @@ matching cached candidates and querying native sources.
 
 Tropical sources are separate from country routing. A system matches a
 proximity query when its centre is within the radius or the point is in one of
-its polygon geometry layers.
+its polygon geometry layers. A tropical source may declare
+`issuer_country_code`, the ISO 3166-1 alpha-2 location of its operational
+issuing centre. It is a downstream presentation-priority hint, not a coverage
+claim: applications may rank same-location issuers first among systems already
+matched to a point, but must never use it to filter foreign regional systems.
+
+### Tropical and offshore products
+
+`TropicalSystem` is a storm-centric model rather than a second kind of land
+warning. It holds available current facts such as classification, name, basin,
+advisory number, issue time, centre, motion, wind and pressure, alongside
+provider URLs, named geometry layers, and source-specific values in
+`parameters`. Fields may be absent where an official product does not provide
+them; the library does not infer them from a track or headline.
+
+Tracks, cones, wind fields, and watches or warnings are distinct provider
+concepts. Backends retain their named layers instead of flattening them into
+one generic warning polygon. A downstream UI may show a storm near a location,
+but must not present a forecast track or cone as a local official warning.
+Tropical systems can be relevant across national boundaries, which is why the
+separate proximity query deliberately checks regional providers rather than
+using country-source routing.
+
+The NTWC and PTWC tsunami products remain ordinary `Alert` sources, but are
+also global/offshore feeds rather than country-routed providers. Their CAP
+geometry can be too limited for a useful local match (for example, a
+zero-radius circle). Preserve and expose the official product, but do not
+invent broader affected-area geometry from an epicentre or text alone.
 
 `get_swic_extreme_alerts()` is a separate global discovery path. It requests
 WMO SWIC WFS map features whose severity code is `4`, groups polygon rows by
@@ -134,7 +161,9 @@ events cover only non-native sources.
 `models.Alert` carries common alert content, timing, area names, raw grouped
 `geocodes` and `parameters`, optional GeoJSON geometry, and `source_info`.
 `TropicalSystem` carries storm-specific fields plus named geometry layers and
-data URLs. These fields intentionally retain provider-specific information.
+data URLs. These fields intentionally retain provider-specific information;
+the tropical/offshore boundary above explains why their semantics must not be
+collapsed into ordinary land-warning matching.
 
 `cap.parse_cap_alert()` is the common CAP 1.2 normalization path: it chooses a
 requested-language `info` block (then English, then first), preserves CAP
@@ -160,8 +189,8 @@ network request.
 ## Providers
 
 `sources.py` is the source-of-truth inventory: at the time this document was
-added it declares 160 enabled sources (156 alert, 4 tropical-system) across
-85 backend IDs. Use `wevva-warnings sources` or `list_sources()` for the
+added it declares 169 enabled sources (162 alert, 7 tropical-system) across
+87 backend IDs. Use `wevva-warnings sources` or `list_sources()` for the
 current list; do not duplicate that volatile inventory here.
 
 The provider implementations fall into these concrete families:
@@ -169,8 +198,8 @@ The provider implementations fall into these concrete families:
 | Family | Current implementations | Behaviour and provider-specific boundary |
 | --- | --- | --- |
 | Native JSON point query | `nws` | Sends the point upstream and maps NWS GeoJSON features directly. The query layer trusts its native spatial filtering. |
-| Structured or product-specific feeds | `geomet`, `ea_flood`, `hko`, `hydromet_guyana`, `meteoalarm_atom`, `nhc_gis`, `jma`, `jma_tropical`, `swic_mirror`, `swic_extreme` | Parse provider JSON/XML, RSS/Atom or GIS products directly. These adapters hold the source-specific field, URL, geometry, revision, or product-selection rules. `swic_mirror` can add a matching WMO map polygon when CAP has none; `swic_extreme` groups global WFS features for the explicit discovery helper. `nhc_gis` and `jma_tropical` produce `TropicalSystem`. |
-| Generic CAP | `generic_cap` (18 registered sources) | Accepts direct CAP, embedded CAP, RSS, or Atom and follows likely CAP links. Use only when the feed's link discovery works without provider rules. |
+| Structured or product-specific feeds | `bom_tropical`, `geomet`, `ea_flood`, `hko`, `hydromet_guyana`, `meteoalarm_atom`, `meteofrance_reunion_tropical`, `nhc_gis`, `jma`, `jma_tropical`, `swic_mirror`, `swic_extreme` | Parse provider JSON/XML, RSS/Atom or GIS products directly. These adapters hold the source-specific field, URL, geometry, revision, or product-selection rules. `swic_mirror` can add a matching WMO map polygon when CAP has none; `swic_extreme` groups global WFS features for the explicit discovery helper. `nhc_gis`, `jma_tropical`, `bom_tropical`, `hko`, and `meteofrance_reunion_tropical` produce `TropicalSystem`. |
+| Generic CAP | `generic_cap` (24 registered sources) | Accepts direct CAP, embedded CAP, RSS, or Atom and follows likely CAP links. Use only when the feed's link discovery works without provider rules. |
 | Focused CAP feed adapters | the remaining alert backends | Fetch a provider feed, select the provider's CAP URLs, then use `_cap_feed.fetch_cap_documents()` and `cap.parse_cap_alert()`. Their small differences are intentional: link location/type, language, fixed or query-style URLs, archive/revision filtering, and area-name cleanup vary by provider. |
 
 The shared CAP helpers are the meaningful existing abstraction: `base.py`
@@ -183,7 +212,9 @@ locally. There is not evidence here for a broader provider framework.
 Every backend subclasses `WarningBackend` and implements `fetch_alerts()`;
 tropical providers additionally override `fetch_tropical_systems()`. A source
 needs a stable ID, backend ID, kind, and truthful optional country/language
-metadata; global sources deliberately have no country code. Non-native alert
+metadata. `country_code` is country-alert routing metadata; a tropical source
+instead may supply `issuer_country_code` as its operational-centre location.
+Global sources deliberately have no routing country code. Non-native alert
 providers also need explicit polygonal geometry or supported geocodes for point
 lookup to be useful.
 

@@ -11,7 +11,7 @@ from xml.etree import ElementTree
 from ..models import Alert, Geometry, TropicalSystem
 from ..sources import WarningSource
 from ._cap_feed import absolute_url, child_text, fetch_feed_root, local_name
-from .base import BackendError, WarningBackend, fetch_bytes
+from .base import BackendError, WarningBackend, fetch_bytes, fetch_text
 
 _ATCF_FROM_GUID_RE = re.compile(r'(?:summary|atcf|gis-[a-z0-9-]+)-([a-z]{2}\d{6})-', re.IGNORECASE)
 _ATCF_FROM_TITLE_RE = re.compile(r'\(([A-Z0-9]+)/(?:([a-z]{2}\d{6}))\)', re.IGNORECASE)
@@ -80,6 +80,7 @@ class NHCGISBackend(WarningBackend):
                 bucket['advisory_number'] = advisory_number
 
         _populate_geometry_assets(grouped, debug=debug)
+        _populate_advisory_information(grouped, debug=debug)
 
         systems: list[TropicalSystem] = []
         for atcf, data in grouped.items():
@@ -104,6 +105,7 @@ class NHCGISBackend(WarningBackend):
                     center_lon=_maybe_float(data.get('center_lon')),
                     movement=self.text_or_none(data.get('movement')),
                     min_pressure=self.text_or_none(data.get('min_pressure')),
+                    max_wind=self.text_or_none(data.get('max_wind')),
                     summary=self.text_or_none(data.get('headline')),
                     data_urls=dict(data.get('data_urls') or {}),
                     geometries=dict(data.get('geometries') or {}),
@@ -210,10 +212,15 @@ def _parameters_from_bucket(bucket: dict[str, Any]) -> dict[str, list[str]]:
     for key, label in [
         ('wallet', 'NHC Wallet'),
         ('atcf', 'ATCF ID'),
+        ('saffir_simpson_category', 'NHC Saffir-Simpson Category'),
+        ('watches_warnings', 'NHC Watches and Warnings'),
     ]:
         value = bucket.get(key)
         if value:
             parameters[label] = [str(value)]
+    location_references = bucket.get('location_references')
+    if isinstance(location_references, list) and location_references:
+        parameters['NHC Location References'] = [str(reference) for reference in location_references]
     return parameters
 
 
@@ -229,6 +236,85 @@ def _populate_geometry_assets(grouped: dict[str, dict[str, Any]], *, debug: bool
                 geometries[key] = geometry
         if geometries:
             bucket['geometries'] = geometries
+
+
+def _populate_advisory_information(grouped: dict[str, dict[str, Any]], *, debug: bool) -> None:
+    """Add compact current facts from each linked official ATCF advisory XML."""
+    for bucket in grouped.values():
+        url = (bucket.get('data_urls') or {}).get('atcf_xml')
+        if not isinstance(url, str) or not url:
+            continue
+        try:
+            payload = fetch_text(url, headers={'Accept': 'application/xml, text/xml'}, debug=debug)
+        except BackendError:
+            continue
+        for key, value in _parse_advisory_information(payload).items():
+            if value and not bucket.get(key):
+                bucket[key] = value
+
+
+def _parse_advisory_information(payload: str) -> dict[str, Any]:
+    """Return at-a-glance facts from NHC's linked ATCF advisory XML."""
+    try:
+        root = ElementTree.fromstring(payload)
+    except ElementTree.ParseError:
+        return {}
+
+    values: dict[str, Any] = {}
+    advisory_number = _first_text(root, 'advisoryNumber')
+    if advisory_number:
+        values['advisory_number'] = advisory_number
+    max_wind = _advisory_maximum_wind(root)
+    if max_wind:
+        values['max_wind'] = max_wind
+    category = _useful_text(_first_text(root, 'systemSaffirSimpsonCategory'))
+    if category:
+        values['saffir_simpson_category'] = category
+    references = [
+        reference
+        for tag in ('systemGeoRefPt1', 'systemGeoRefPt2')
+        if (reference := _first_text(root, tag))
+    ]
+    if references:
+        values['location_references'] = references
+    watches_warnings = _watch_warning_summary(_first_text(root, 'message'))
+    if watches_warnings:
+        values['watches_warnings'] = watches_warnings
+    return values
+
+
+def _advisory_maximum_wind(root: ElementTree.Element) -> str | None:
+    values: list[str] = []
+    for tag, unit in (
+        ('systemIntensityKts', 'kt'),
+        ('systemIntensityMph', 'mph'),
+        ('systemIntensityKph', 'km/h'),
+    ):
+        value = _useful_text(_first_text(root, tag))
+        if value:
+            values.append(f'{value} {unit}')
+    if not values:
+        return None
+    return f'{values[0]} ({" / ".join(values[1:])})' if len(values) > 1 else values[0]
+
+
+def _watch_warning_summary(message: str | None) -> str | None:
+    """Extract the current watch/warning paragraph from an advisory message."""
+    if not message:
+        return None
+    heading = 'SUMMARY OF WATCHES AND WARNINGS IN EFFECT:'
+    _, separator, remainder = message.partition(heading)
+    if not separator:
+        return None
+    paragraph = remainder.strip().split('\n\n', 1)[0]
+    summary = ' '.join(line.strip() for line in paragraph.splitlines() if line.strip())
+    return _useful_text(summary)
+
+
+def _useful_text(value: str | None) -> str | None:
+    if not value or value.strip().casefold() in {'n/a', 'none.', 'none'}:
+        return None
+    return value.strip()
 
 
 def _fetch_asset_geometry(url: str, *, debug: bool) -> Geometry | None:

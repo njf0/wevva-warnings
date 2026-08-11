@@ -1,8 +1,9 @@
-"""Provider backend for JMA tropical-system discussion XML."""
+"""Provider backend for JMA operational tropical-cyclone XML products."""
 
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from xml.etree import ElementTree
 
 from ..models import Alert, TropicalSystem
@@ -10,18 +11,12 @@ from ..sources import WarningSource
 from ._cap_feed import absolute_url, fetch_feed_root, local_name
 from .base import BackendError, WarningBackend, fetch_text
 
-_TROPICAL_MARKERS = ('熱帯低気圧', '台風', '元台風')
-_FULLWIDTH_DIGIT_MAP = str.maketrans('０１２３４５６７８９', '0123456789')
-_COORDINATE_RE = re.compile(
-    r'([北南])緯\s*([0-9０-９]+)度([0-9０-９]+)分、\s*([東西])経\s*([0-9０-９]+)度([0-9０-９]+)分'
-)
-_PRESSURE_RE = re.compile(r'中心の気圧は([0-9０-９]+)ヘクトパスカル')
-_MAX_WIND_RE = re.compile(r'最大風速は([0-9０-９]+)メートル')
-_MOVEMENT_RE = re.compile(r'１時間に(?:およそ)?([0-9０-９]+)キロの速さで(.+?)へ進んでいます')
+_PRODUCT_CODE_RE = re.compile(r'_(VPT[IW](?:5[0-2]|6[0-5]))_', re.IGNORECASE)
+_CENTER_COORDINATE_RE = re.compile(r'([+-]\d+(?:\.\d+)?)([+-]\d+(?:\.\d+)?)\s*/?')
 
 
 class JMATropicalBackend(WarningBackend):
-    """Fetch tropical-system style products from JMA's XML pull feed."""
+    """Fetch canonical current tropical systems from JMA's XML update feed."""
 
     backend_id = 'jma_tropical'
 
@@ -47,42 +42,86 @@ class JMATropicalBackend(WarningBackend):
         lang: str | None = None,
         debug: bool = False,
     ) -> list[TropicalSystem]:
-        """Fetch tropical systems from JMA's public XML update feed."""
+        """Fetch current tropical systems from JMA's public XML update feed."""
         del lat, lon, lang
         root = fetch_feed_root(source, debug=debug)
         if root is None or not source.url:
             return []
 
-        systems: list[TropicalSystem] = []
-        for document_url in _jma_tropical_document_urls(root, base_url=source.url):
+        systems: dict[str, TropicalSystem] = {}
+        for document_url, product_code in _jma_tropical_documents(root, base_url=source.url):
             try:
                 payload = fetch_text(document_url, headers={'Accept': 'application/xml, text/xml'}, debug=debug)
             except BackendError:
                 continue
-            system = _parse_jma_tropical_report(payload, source=source.id, url=document_url)
-            if system is not None:
-                systems.append(system)
-        return systems
+            system = _parse_jma_tropical_report(
+                payload,
+                source=source.id,
+                url=document_url,
+                product_code=product_code,
+            )
+            if system is None:
+                continue
+            previous = systems.get(system.id)
+            if previous is None or _prefer_system(system, previous):
+                systems[system.id] = system
+
+        return sorted(systems.values(), key=lambda system: (system.name.casefold(), system.id))
 
 
-def _jma_tropical_document_urls(root: ElementTree.Element, *, base_url: str) -> list[str]:
-    urls: list[str] = []
+def _jma_tropical_documents(
+    root: ElementTree.Element,
+    *,
+    base_url: str,
+) -> list[tuple[str, str]]:
+    """Return the newest update for each dedicated JMA tropical product."""
+    newest_by_product: dict[str, tuple[datetime | None, str]] = {}
     for entry in root.iter():
         if local_name(entry.tag) != 'entry':
             continue
-        title = _entry_text(entry, 'title')
-        content = _entry_text(entry, 'content')
-        haystack = f'{title}\n{content}'
-        if not any(marker in haystack for marker in _TROPICAL_MARKERS):
+
+        url = _entry_xml_url(entry, base_url=base_url)
+        if url is None:
             continue
-        for child in entry:
-            if local_name(child.tag) != 'link':
-                continue
-            href = absolute_url(base_url, child.attrib.get('href'))
-            if href and (child.attrib.get('type') or '').lower() == 'application/xml':
-                urls.append(href)
-                break
-    return list(dict.fromkeys(urls))
+        product_match = _PRODUCT_CODE_RE.search(url)
+        if product_match is None:
+            continue
+        product_code = product_match.group(1).upper()
+        updated = WarningBackend.parse_datetime(_entry_text(entry, 'updated'))
+
+        previous = newest_by_product.get(product_code)
+        if previous is None or _is_newer_update(updated, url, previous):
+            newest_by_product[product_code] = (updated, url)
+
+    return [
+        (url, product_code)
+        for product_code, (_, url) in sorted(newest_by_product.items())
+    ]
+
+
+def _entry_xml_url(entry: ElementTree.Element, *, base_url: str) -> str | None:
+    for child in entry:
+        if local_name(child.tag) != 'link':
+            continue
+        href = absolute_url(base_url, child.attrib.get('href'))
+        if href and (child.attrib.get('type') or '').lower() == 'application/xml':
+            return href
+    return None
+
+
+def _is_newer_update(
+    updated: datetime | None,
+    url: str,
+    previous: tuple[datetime | None, str],
+) -> bool:
+    previous_updated, previous_url = previous
+    if updated is not None and previous_updated is not None:
+        return (updated, url) > (previous_updated, previous_url)
+    if updated is not None:
+        return True
+    if previous_updated is not None:
+        return False
+    return url > previous_url
 
 
 def _parse_jma_tropical_report(
@@ -90,6 +129,7 @@ def _parse_jma_tropical_report(
     *,
     source: str,
     url: str,
+    product_code: str,
 ) -> TropicalSystem | None:
     try:
         root = ElementTree.fromstring(xml_payload)
@@ -98,65 +138,207 @@ def _parse_jma_tropical_report(
 
     head = _first_descendant(root, 'Head')
     body = _first_descendant(root, 'Body')
-    if head is None:
+    if head is None or body is None:
         return None
 
     title = _child_text(head, 'Title') or ''
-    if not any(marker in title for marker in _TROPICAL_MARKERS):
-        headline_text = _headline_text(head)
-        if not any(marker in headline_text for marker in _TROPICAL_MARKERS):
-            return None
-    else:
-        headline_text = _headline_text(head)
+    if not _is_tropical_product(title, body):
+        return None
 
-    conditions = _headline_conditions(head)
-    tc_number = conditions.get('台風番号') or conditions.get('TC番号')
-    info_tag = conditions.get('情報タグ')
-    summary = _summary_text(body)
+    information = _current_tropical_information(body)
+    item = _first_child(information, 'Item') if information is not None else None
+    if item is None:
+        return None
 
-    center_lat, center_lon = _parse_coordinates(summary)
-    movement = _parse_movement(summary)
-    pressure = _parse_metric(summary, _PRESSURE_RE, suffix=' hPa')
-    max_wind = _parse_metric(summary, _MAX_WIND_RE, suffix=' m/s')
-
-    identifier = tc_number or _child_text(head, 'EventID') or title
-    classification = _classification_for_title(title, info_tag)
-    name = tc_number or _child_text(head, 'EventID') or title
-
-    parameters: dict[str, list[str]] = {}
+    name, typhoon_number = _name_and_number(item)
+    classification = _classification(item, title)
     event_id = _child_text(head, 'EventID')
+    identifier = _canonical_identifier(event_id, typhoon_number, title)
+    if identifier is None:
+        return None
+
+    center_lat, center_lon = _center(item)
+    movement = _movement(item)
+    pressure = _metric(item, property_type='中心', value_name='Pressure')
+    max_wind = _metric(item, property_type='風', value_name='WindSpeed')
+    headline = _headline_text(head) or title
+
+    parameters: dict[str, list[str]] = {'JMA Product Code': [product_code]}
     if event_id:
         parameters['JMA Event ID'] = [event_id]
-    if info_tag:
-        parameters['JMA Information Tag'] = [info_tag]
-    if tc_number:
-        parameters['JMA Tropical Number'] = [tc_number]
+    information_tag = _headline_conditions(head).get('情報タグ')
+    if information_tag:
+        parameters['JMA Information Tag'] = [information_tag]
+    if typhoon_number:
+        parameters['JMA Typhoon Number'] = [typhoon_number]
+    serial = _child_text(head, 'Serial')
+    if serial:
+        parameters['JMA Report Serial'] = [serial]
+    information_type = _child_text(head, 'InfoType')
+    if information_type:
+        parameters['JMA Information Type'] = [information_type]
+    analysis_time = _child_text(information, 'DateTime')
+    if analysis_time:
+        parameters['JMA Analysis Time'] = [analysis_time]
+    raw_classification = _raw_classification(item)
+    if raw_classification:
+        parameters['JMA Raw Classification'] = [raw_classification]
 
     return TropicalSystem(
         id=identifier,
         source=source,
         classification=classification,
-        name=name,
-        headline=headline_text or title,
+        name=name or typhoon_number or event_id or title,
+        headline=headline,
         basin='Northwest Pacific',
         url=url,
         issued_at=WarningBackend.parse_datetime(_child_text(head, 'ReportDateTime')),
+        advisory_number=serial,
         center_lat=center_lat,
         center_lon=center_lon,
         movement=movement,
         min_pressure=pressure,
         max_wind=max_wind,
-        summary=summary or headline_text or title,
+        summary=headline,
         parameters=parameters,
     )
 
 
-def _entry_text(entry: ElementTree.Element, name: str) -> str:
-    for child in entry:
-        if local_name(child.tag) != name:
+def _is_tropical_product(title: str, body: ElementTree.Element) -> bool:
+    if '台風' in title or '熱帯低気圧' in title:
+        return True
+    for node in body.iter():
+        if local_name(node.tag) == 'TyphoonNamePart':
+            return True
+    return False
+
+
+def _current_tropical_information(body: ElementTree.Element) -> ElementTree.Element | None:
+    """Find the current meteorological information, falling back to the first."""
+    fallback: ElementTree.Element | None = None
+    for information in body.iter():
+        if local_name(information.tag) != 'MeteorologicalInfo':
             continue
-        return ''.join(child.itertext()).strip()
-    return ''
+        if _first_child(information, 'Item') is None:
+            continue
+        fallback = fallback or information
+        date_time = _child_text(information, 'DateTime') or ''
+        if '実況' in date_time or _child_attribute(information, 'DateTime', 'type') == '実況':
+            return information
+    return fallback
+
+
+def _name_and_number(item: ElementTree.Element) -> tuple[str | None, str | None]:
+    for property_node in _properties(item):
+        if _child_text(property_node, 'Type') != '呼称':
+            continue
+        name_part = _first_descendant(property_node, 'TyphoonNamePart')
+        if name_part is None:
+            continue
+        return _child_text(name_part, 'Name'), _child_text(name_part, 'Number')
+    return None, None
+
+
+def _classification(item: ElementTree.Element, title: str) -> str:
+    values = [title]
+    for property_node in _properties(item):
+        if _child_text(property_node, 'Type') == '階級':
+            values.append(_descendant_text(property_node, 'TyphoonClass') or '')
+    text = ' '.join(values)
+    if '元台風' in text or '温帯低気圧' in text:
+        return 'Ex-Typhoon'
+    if '発達する熱帯低気圧' in text or '熱帯低気圧' in text:
+        return 'Developing Tropical Depression'
+    if '台風' in text:
+        return 'Typhoon'
+    return 'Tropical System'
+
+
+def _raw_classification(item: ElementTree.Element) -> str | None:
+    """Return JMA's more specific untransliterated class when it is present."""
+    values = [
+        value
+        for property_node in _properties(item)
+        if _child_text(property_node, 'Type') == '階級'
+        if (value := _descendant_text(property_node, 'TyphoonClass'))
+    ]
+    return ', '.join(values) or None
+
+
+def _canonical_identifier(
+    event_id: str | None,
+    typhoon_number: str | None,
+    title: str,
+) -> str | None:
+    if event_id:
+        return event_id
+    if typhoon_number:
+        value = typhoon_number.strip().upper()
+        if re.fullmatch(r'\d{4}', value):
+            return f'TC{value}'
+        return value
+    return title or None
+
+
+def _center(item: ElementTree.Element) -> tuple[float | None, float | None]:
+    for property_node in _properties(item):
+        if _child_text(property_node, 'Type') != '中心':
+            continue
+        coordinate = _descendant_text(property_node, 'Coordinate')
+        if coordinate:
+            match = _CENTER_COORDINATE_RE.search(coordinate)
+            if match:
+                return float(match.group(1)), float(match.group(2))
+    return None, None
+
+
+def _movement(item: ElementTree.Element) -> str | None:
+    for property_node in _properties(item):
+        if _child_text(property_node, 'Type') != '中心':
+            continue
+        direction = _descendant_text(property_node, 'Direction')
+        speed = _descendant_text(property_node, 'Speed')
+        if not direction and not speed:
+            continue
+        speed_node = _first_descendant(property_node, 'Speed')
+        unit = speed_node.attrib.get('unit') if speed_node is not None else None
+        if direction and speed:
+            return f'{direction} at {speed}{f" {unit}" if unit else ""}'
+        return direction or (f'{speed}{f" {unit}" if unit else ""}')
+    return None
+
+
+def _metric(item: ElementTree.Element, *, property_type: str, value_name: str) -> str | None:
+    for property_node in _properties(item):
+        if _child_text(property_node, 'Type') != property_type:
+            continue
+        value = _descendant_text(property_node, value_name)
+        value_node = _first_descendant(property_node, value_name)
+        if value and value_node is not None:
+            unit = value_node.attrib.get('unit')
+            return f'{value}{f" {unit}" if unit else ""}'
+    return None
+
+
+def _prefer_system(candidate: TropicalSystem, previous: TropicalSystem) -> bool:
+    candidate_time = candidate.issued_at
+    previous_time = previous.issued_at
+    if candidate_time is not None and previous_time is not None and candidate_time != previous_time:
+        return candidate_time > previous_time
+    if candidate_time is not None and previous_time is None:
+        return True
+    if candidate_time is None and previous_time is not None:
+        return False
+    return _product_priority(candidate) > _product_priority(previous)
+
+
+def _product_priority(system: TropicalSystem) -> int:
+    product_code = (system.parameters.get('JMA Product Code') or [''])[0]
+    return 2 if product_code.startswith('VPTW') else 1
+
+
+def _entry_text(entry: ElementTree.Element, name: str) -> str | None:
+    return _child_text(entry, name)
 
 
 def _first_descendant(root: ElementTree.Element, name: str) -> ElementTree.Element | None:
@@ -166,25 +348,36 @@ def _first_descendant(root: ElementTree.Element, name: str) -> ElementTree.Eleme
     return None
 
 
-def _child_text(element: ElementTree.Element | None, name: str) -> str | None:
-    if element is None:
-        return None
+def _first_child(element: ElementTree.Element, name: str) -> ElementTree.Element | None:
     for child in element:
-        if local_name(child.tag) != name:
-            continue
-        text = ''.join(child.itertext()).strip()
-        return text or None
+        if local_name(child.tag) == name:
+            return child
     return None
 
 
-def _headline_text(head: ElementTree.Element) -> str:
-    headline = _first_descendant(head, 'Headline')
-    if headline is None:
-        return ''
-    for child in headline:
-        if local_name(child.tag) == 'Text':
-            return ''.join(child.itertext()).strip()
-    return ''
+def _child_text(element: ElementTree.Element | None, name: str) -> str | None:
+    child = _first_child(element, name) if element is not None else None
+    if child is None:
+        return None
+    text = ''.join(child.itertext()).strip()
+    return text or None
+
+
+def _child_attribute(element: ElementTree.Element, name: str, attribute: str) -> str | None:
+    child = _first_child(element, name)
+    return child.attrib.get(attribute) if child is not None else None
+
+
+def _descendant_text(element: ElementTree.Element, name: str) -> str | None:
+    node = _first_descendant(element, name)
+    if node is None:
+        return None
+    text = ''.join(node.itertext()).strip()
+    return text or None
+
+
+def _properties(item: ElementTree.Element) -> list[ElementTree.Element]:
+    return [node for node in item.iter() if local_name(node.tag) == 'Property']
 
 
 def _headline_conditions(head: ElementTree.Element) -> dict[str, str]:
@@ -192,7 +385,6 @@ def _headline_conditions(head: ElementTree.Element) -> dict[str, str]:
     headline = _first_descendant(head, 'Headline')
     if headline is None:
         return conditions
-
     for node in headline.iter():
         if local_name(node.tag) != 'Kind':
             continue
@@ -203,61 +395,6 @@ def _headline_conditions(head: ElementTree.Element) -> dict[str, str]:
     return conditions
 
 
-def _summary_text(body: ElementTree.Element | None) -> str:
-    if body is None:
-        return ''
-    for node in body.iter():
-        if local_name(node.tag) != 'Text':
-            continue
-        if node.attrib.get('type') != '本文':
-            continue
-        text = ''.join(node.itertext()).strip()
-        if text:
-            return text
-    return ''
-
-
-def _normalize_digits(text: str) -> str:
-    return text.translate(_FULLWIDTH_DIGIT_MAP)
-
-
-def _parse_coordinates(text: str) -> tuple[float | None, float | None]:
-    match = _COORDINATE_RE.search(text)
-    if not match:
-        return None, None
-    lat_sign = 1.0 if match.group(1) == '北' else -1.0
-    lon_sign = 1.0 if match.group(4) == '東' else -1.0
-    lat_deg = float(_normalize_digits(match.group(2)))
-    lat_min = float(_normalize_digits(match.group(3)))
-    lon_deg = float(_normalize_digits(match.group(5)))
-    lon_min = float(_normalize_digits(match.group(6)))
-    lat = lat_sign * (lat_deg + lat_min / 60.0)
-    lon = lon_sign * (lon_deg + lon_min / 60.0)
-    return round(lat, 3), round(lon, 3)
-
-
-def _parse_metric(text: str, pattern: re.Pattern[str], *, suffix: str) -> str | None:
-    match = pattern.search(text)
-    if not match:
-        return None
-    return f'{_normalize_digits(match.group(1))}{suffix}'
-
-
-def _parse_movement(text: str) -> str | None:
-    match = _MOVEMENT_RE.search(text)
-    if not match:
-        return None
-    speed = _normalize_digits(match.group(1))
-    direction = match.group(2).strip()
-    return f'{direction} at {speed} km/h'
-
-
-def _classification_for_title(title: str, info_tag: str | None) -> str:
-    text = f'{title} {info_tag or ""}'
-    if '元台風' in text:
-        return 'Ex-Typhoon'
-    if '発達する熱帯低気圧' in text or '熱帯低気圧' in text:
-        return 'Developing Tropical Depression'
-    if '台風' in text:
-        return 'Typhoon'
-    return 'Tropical System'
+def _headline_text(head: ElementTree.Element) -> str:
+    headline = _first_descendant(head, 'Headline')
+    return _descendant_text(headline, 'Text') if headline is not None else ''

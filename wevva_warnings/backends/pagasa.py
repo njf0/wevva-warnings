@@ -51,6 +51,7 @@ def _pagasa_alert_urls(root: ElementTree.Element, *, base_url: str) -> list[str]
             if not href:
                 continue
             url = urljoin(base_url, href)
-            if url.lower().endswith('.xml'):
+            link_type = (child.get('type') or '').lower()
+            if 'cap' in link_type or url.lower().endswith(('.cap', '.xml')):
                 urls.append(url)
     return list(dict.fromkeys(urls))

@@ -7,7 +7,14 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class WarningSource:
-    """Definition of one official warning source."""
+    """Definition of one official warning source.
+
+    ``country_code`` selects ordinary country-routed alert sources.  For a
+    tropical-system source, ``issuer_country_code`` instead records the ISO
+    3166-1 alpha-2 location of its operational issuing centre.  It is
+    presentation metadata only: it must not be used to route or exclude
+    tropical systems.
+    """
 
     id: str
     name: str
@@ -17,6 +24,7 @@ class WarningSource:
     lang: str | None = None
     notes: str | None = None
     kind: str = 'alert'
+    issuer_country_code: str | None = None
 
 
 SOURCES: tuple[WarningSource, ...] = (
@@ -64,6 +72,7 @@ SOURCES: tuple[WarningSource, ...] = (
         lang='en',
         notes='Official NOAA NHC GIS RSS feed for active Atlantic tropical cyclones and associated storm GIS products.',
         kind='tropical_system',
+        issuer_country_code='US',
     ),
     WarningSource(
         id='nhc_gis_eastern_pacific',
@@ -74,6 +83,7 @@ SOURCES: tuple[WarningSource, ...] = (
         lang='en',
         notes='Official NOAA NHC GIS RSS feed for active Eastern Pacific tropical cyclones and associated storm GIS products.',
         kind='tropical_system',
+        issuer_country_code='US',
     ),
     WarningSource(
         id='cphc_gis_central_pacific',
@@ -84,6 +94,7 @@ SOURCES: tuple[WarningSource, ...] = (
         lang='en',
         notes='Official NOAA CPHC GIS RSS feed for active Central Pacific tropical cyclones and associated storm GIS products.',
         kind='tropical_system',
+        issuer_country_code='US',
     ),
     WarningSource(
         id='jma_tropical',
@@ -92,8 +103,42 @@ SOURCES: tuple[WarningSource, ...] = (
         country_code=None,
         url='https://www.data.jma.go.jp/developer/xml/feed/extra.xml',
         lang='ja',
-        notes='Official JMA XML update feed filtered to tropical-low and typhoon-related discussion products.',
+        notes='Official JMA XML update feed, restricted to the dedicated VPTI50-52 and VPTW60-65 tropical-cyclone products; returns one latest report per system.',
         kind='tropical_system',
+        issuer_country_code='JP',
+    ),
+    WarningSource(
+        id='bom_tropical',
+        name='Australian Bureau of Meteorology',
+        backend='bom_tropical',
+        country_code=None,
+        url='ftp://ftp.bom.gov.au/anon/gen/fwo/',
+        lang='en',
+        notes='Official public BoM FTP tropical-cyclone forecast-track GML products for the Australian region. Includes a centre, track and, when issued, watch, warning, forecast and wind-area geometry.',
+        kind='tropical_system',
+        issuer_country_code='AU',
+    ),
+    WarningSource(
+        id='hko_tropical',
+        name='Hong Kong Observatory',
+        backend='hko',
+        country_code=None,
+        url='https://www.weather.gov.hk/wxinfo/currwx/tc_list.xml',
+        lang='en,zh',
+        notes='Official HKO tropical-cyclone list and per-system track XML for systems within HKO’s published Northwest Pacific and South China Sea responsibility region. Includes current analysis, past positions and, when issued, forecast positions.',
+        kind='tropical_system',
+        issuer_country_code='HK',
+    ),
+    WarningSource(
+        id='meteofrance_reunion_tropical',
+        name='Météo-France La Réunion (RSMC)',
+        backend='meteofrance_reunion_tropical',
+        country_code=None,
+        url='https://meteofrance.re/fr/cyclone',
+        lang='fr',
+        notes='Official Météo-France La Réunion RSMC current Southwest Indian Ocean cyclone data, obtained from the public site’s anonymous session-backed trajectory service. Includes analysed centre, intensity, wind and pressure data, plus the published track.',
+        kind='tropical_system',
+        issuer_country_code='RE',
     ),
     WarningSource(
         id='geomet',
@@ -402,6 +447,15 @@ SOURCES: tuple[WarningSource, ...] = (
         notes='Official CMA public alert feed mirrored through the WMO Severe Weather Information Centre, with linked CAP XML alerts and WMO map-geometry backfill when CAP lacks polygons.',
     ),
     WarningSource(
+        id='imn_costa_rica',
+        name='Instituto Meteorológico Nacional',
+        backend='generic_cap',
+        country_code='CR',
+        url='https://cap-sources.s3.amazonaws.com/cr-imn-es/rss.xml',
+        lang='es',
+        notes='Official Costa Rica CAP RSS feed distributed via the WMO Alert Hub mirror, with linked Spanish CAP XML and polygon geometry.',
+    ),
+    WarningSource(
         id='dmn_car',
         name='Direction de la Météorologie Nationale',
         backend='generic_cap',
@@ -472,6 +526,15 @@ SOURCES: tuple[WarningSource, ...] = (
         url='https://meteodjibouti.dj/api/cap/rss.xml',
         lang='fr',
         notes='Official Djibouti CAP RSS feed with linked CAP XML and polygon geometry.',
+    ),
+    WarningSource(
+        id='ema_egypt',
+        name='Egyptian Meteorological Authority',
+        backend='generic_cap',
+        country_code='EG',
+        url='https://cap-sources.s3.amazonaws.com/eg-ema-en/rss.xml',
+        lang='en',
+        notes='Official Egyptian Meteorological Authority CAP RSS feed distributed via the WMO Alert Hub mirror, with linked English CAP XML and polygon geometry.',
     ),
     WarningSource(
         id='ethiomet',
@@ -573,6 +636,15 @@ SOURCES: tuple[WarningSource, ...] = (
         notes='Official India Meteorological Department CAP RSS feed distributed via the WMO Alert Hub mirror, with linked CAP XML and polygon geometry.',
     ),
     WarningSource(
+        id='irimo_en',
+        name='Iran Meteorological Organization',
+        backend='generic_cap',
+        country_code='IR',
+        url='https://cap-sources.s3.amazonaws.com/ir-irimo-en/rss.xml',
+        lang='en',
+        notes='Official Iran Meteorological Organization CAP RSS feed distributed via the WMO Alert Hub mirror, with linked English CAP XML and polygon geometry.',
+    ),
+    WarningSource(
         id='jma',
         name='Japan Meteorological Agency',
         backend='jma',
@@ -636,6 +708,15 @@ SOURCES: tuple[WarningSource, ...] = (
         notes='Official DMH Myanmar Atom warnings feed with linked CAP alerts.',
     ),
     WarningSource(
+        id='mss_singapore',
+        name='Meteorological Service Singapore',
+        backend='generic_cap',
+        country_code='SG',
+        url='https://www.weather.gov.sg/files/rss/rsscapalert/rsscapalert.xml',
+        lang='en',
+        notes='Official public-domain Singapore CAP RSS feed with linked English warning documents and polygon geometry.',
+    ),
+    WarningSource(
         id='met_oman_en',
         name='Directorate General of Meteorology',
         backend='generic_cap',
@@ -670,6 +751,15 @@ SOURCES: tuple[WarningSource, ...] = (
         url='https://www.weather.go.kr/w/rss/cap/warning.do',
         lang='en',
         notes='Official Korea Meteorological Administration CAP RSS feed with linked CAP XML and polygon geometry.',
+    ),
+    WarningSource(
+        id='kuwait_met',
+        name='Kuwait Meteorological Department',
+        backend='generic_cap',
+        country_code='KW',
+        url='https://www.met.gov.kw/rss_eng/kuwait_cap.xml',
+        lang='en',
+        notes='Official Kuwait Meteorological Department CAP RSS feed with linked CAP XML and polygon geometry.',
     ),
     WarningSource(
         id='kyrgyzhydromet_en',
@@ -1147,6 +1237,15 @@ SOURCES: tuple[WarningSource, ...] = (
         url='https://cap-sources.s3.amazonaws.com/pa-imhpa-es/rss.xml',
         lang='es',
         notes='Official Panama CAP RSS feed distributed via the WMO Alert Hub mirror, with linked CAP XML and polygon geometry.',
+    ),
+    WarningSource(
+        id='pmd_pakistan',
+        name='Pakistan Meteorological Department',
+        backend='generic_cap',
+        country_code='PK',
+        url='https://cap-sources.s3.amazonaws.com/pk-pmd-en/rss.xml',
+        lang='en',
+        notes='Official Pakistan Meteorological Department CAP RSS feed distributed via the WMO Alert Hub mirror, with linked English CAP XML and polygon geometry.',
     ),
     WarningSource(
         id='pagasa',

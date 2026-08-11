@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 import zipfile
 
 from wevva_warnings import match_alerts_to_point
@@ -13,6 +13,7 @@ from wevva_warnings.backends.anmeteo import ANMETEOBackend
 from wevva_warnings.backends.bahrain import BahrainBackend
 from wevva_warnings.backends.base import BackendError
 from wevva_warnings.backends.bmkg import BMKGBackend
+from wevva_warnings.backends.bom_tropical import BoMTropicalBackend
 from wevva_warnings.backends.dirmet_cg import DirmetCGBackend
 from wevva_warnings.backends.dwd import DWDBackend
 from wevva_warnings.backends.ea_flood import EAFloodBackend
@@ -799,6 +800,11 @@ NHC_GIS_FEED = """\
       </nhc:Cyclone>
     </item>
     <item>
+      <title>ATCF XML Prototype [xml] - Tropical Storm ALPHA (AL012026/al012026)</title>
+      <link>https://www.nhc.noaa.gov/gis/AL012026_INFO.xml</link>
+      <guid isPermaLink="false">atcf-xml-al012026-1-202606011500</guid>
+    </item>
+    <item>
       <title>Advisory #1 Forecast Track [kmz] - Tropical Storm ALPHA (AL012026/al012026)</title>
       <link>https://www.nhc.noaa.gov/gis/AL012026_TRACK.kmz</link>
       <guid isPermaLink="false">gis-track-kml-al012026-1-202606011500</guid>
@@ -815,6 +821,26 @@ NHC_GIS_FEED = """\
     </item>
   </channel>
 </rss>
+"""
+
+NHC_ADVISORY_INFO = """\
+<?xml version="1.0"?>
+<cycloneMessage>
+  <advisoryNumber>1</advisoryNumber>
+  <systemIntensityMph>60</systemIntensityMph>
+  <systemIntensityKph>95</systemIntensityKph>
+  <systemIntensityKts>50</systemIntensityKts>
+  <systemSaffirSimpsonCategory>1</systemSaffirSimpsonCategory>
+  <systemGeoRefPt1>ABOUT 100 MI EAST OF BERMUDA</systemGeoRefPt1>
+  <systemGeoRefPt2>ABOUT 500 MI SOUTH OF HALIFAX</systemGeoRefPt2>
+  <message>
+SUMMARY OF WATCHES AND WARNINGS IN EFFECT:
+
+A Hurricane Warning is in effect for the north coast of Bermuda.
+
+DISCUSSION AND OUTLOOK
+  </message>
+</cycloneMessage>
 """
 
 
@@ -1204,74 +1230,105 @@ JMA_TROPICAL_FEED = """\
 <feed xmlns="http://www.w3.org/2005/Atom" lang="ja">
   <title>高頻度（随時）</title>
   <entry>
-    <title>全般気象解説情報</title>
-    <id>https://www.data.jma.go.jp/developer/xml/data/20260131041406_0_VPZJ51_JPTK_311312.xml</id>
-    <updated>2026-01-31T04:14:06Z</updated>
-    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260131041406_0_VPZJ51_JPTK_311312.xml"/>
-    <content type="text">【全般気象解説情報】発達する熱帯低気圧に関する情報です。</content>
+    <title>台風解析・予報情報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260811010000_0_VPTW60_010000.xml</id>
+    <updated>2026-08-11T01:00:00Z</updated>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260811010000_0_VPTW60_010000.xml"/>
   </entry>
   <entry>
-    <title>気象警報・注意報</title>
-    <id>https://www.data.jma.go.jp/developer/xml/data/20260430154331_0_VPWW53_370000.xml</id>
-    <updated>2026-04-30T15:43:30Z</updated>
-    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260430154331_0_VPWW53_370000.xml"/>
-    <content type="text">【香川県気象警報・注意報】香川県では強風や高波に注意してください。</content>
+    <title>台風解析・予報情報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPTW60_010000.xml</id>
+    <updated>2026-08-11T13:00:00Z</updated>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPTW60_010000.xml"/>
+  </entry>
+  <entry>
+    <title>台風位置情報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPTI50_010000.xml</id>
+    <updated>2026-08-11T13:00:00Z</updated>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPTI50_010000.xml"/>
+  </entry>
+  <entry>
+    <title>台風解析・予報情報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPTW61_010000.xml</id>
+    <updated>2026-08-11T13:00:00Z</updated>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPTW61_010000.xml"/>
+  </entry>
+  <entry>
+    <title>全般気象解説情報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPFJ50_010000.xml</id>
+    <updated>2026-08-11T13:00:00Z</updated>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPFJ50_010000.xml"/>
+    <content type="text">台風に関する地域向けの説明です。</content>
   </entry>
 </feed>
 """
 
 JMA_TROPICAL_REPORT = """\
 <?xml version="1.0" encoding="utf-8"?>
-<Report xmlns="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx_add="http://xml.kishou.go.jp/jmaxml1/addition1/" xmlns:jmx="http://xml.kishou.go.jp/jmaxml1/">
-<Control>
-<Title>全般気象解説情報</Title>
-<DateTime>2026-01-31T04:14:06Z</DateTime>
-<Status>通常</Status>
-<EditorialOffice>気象庁本庁</EditorialOffice>
-<PublishingOffice>気象庁</PublishingOffice>
-</Control>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/">
 <Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/">
-<Title>全般気象解説情報（発達する熱帯低気圧）</Title>
-<ReportDateTime>2026-01-31T13:12:00+09:00</ReportDateTime>
-<TargetDateTime>2026-01-31T13:12:00+09:00</TargetDateTime>
-<EventID>ZJPTK260001</EventID>
+<Title>台風解析・予報情報</Title>
+<ReportDateTime>2026-08-11T22:45:00+09:00</ReportDateTime>
+<EventID>TC2617</EventID>
 <InfoType>発表</InfoType>
-<Serial>1</Serial>
-<InfoKind>気象解説情報</InfoKind>
-<InfoKindVersion>1.5_0</InfoKindVersion>
-<Headline>
-<Text>四国地方では大雨に警戒し、落雷や竜巻などの激しい突風に注意してください。</Text>
-<Information type="情報タグ">
-<Item>
-<Kind>
-<Name>情報タグ</Name>
-<Condition>発達する熱低 大雨 落雷 突風</Condition>
-</Kind>
-<Kind>
-<Name>TC番号</Name>
-<Condition>TC2601</Condition>
-</Kind>
-</Item>
-</Information>
-</Headline>
+<Serial>62</Serial>
+<Headline><Text>台風解析・予報情報</Text></Headline>
 </Head>
-<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/" xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/">
-<MeteorologicalInfos type="概況">
+<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/">
+<MeteorologicalInfos type="台風">
 <MeteorologicalInfo>
-<DateTime>2026-01-31T13:12:00+09:00</DateTime>
+<DateTime type="実況">2026-08-11T22:00:00+09:00</DateTime>
 <Item>
-<Kind>
-<Property>
-<Type>気象概況</Type>
-<Text type="本文">３１日９時の観測によると、熱帯低気圧が四万十市付近の北緯３３度００分、東経１３３度００分にあって、１時間におよそ２０キロの速さで北へ進んでいます。中心の気圧は９９８ヘクトパスカル、中心付近の最大風速は１５メートル、最大瞬間風速は２３メートルとなっています。</Text>
-</Property>
-</Kind>
+<Kind><Property><Type>呼称</Type><TyphoonNamePart><Name>CHAN-HOM</Name><Number>2615</Number></TyphoonNamePart></Property></Kind>
+<Kind><Property><Type>階級</Type><TyphoonClass>台風(TS)</TyphoonClass></Property></Kind>
+<Kind><Property><Type>中心</Type><jmx_eb:Coordinate type="中心位置（度）">+35.9+139.9/</jmx_eb:Coordinate><Direction>西南西</Direction><Speed unit="km/h">30</Speed><Pressure unit="hPa">990</Pressure></Property></Kind>
+<Kind><Property><Type>風</Type><WindSpeed type="最大風速" unit="m/s">23</WindSpeed></Property></Kind>
 </Item>
 </MeteorologicalInfo>
 </MeteorologicalInfos>
 </Body>
 </Report>
 """
+
+JMA_TROPICAL_POSITION_REPORT = JMA_TROPICAL_REPORT.replace(
+    '<Title>台風解析・予報情報</Title>',
+    '<Title>台風位置情報</Title>',
+).replace('+35.9+139.9/', '+1.0+2.0/')
+
+JMA_TROPICAL_FORMATION_REPORT = JMA_TROPICAL_REPORT.replace(
+    '<EventID>TC2617</EventID>',
+    '<EventID>TD2601</EventID>',
+).replace(
+    '<TyphoonNamePart><Name>CHAN-HOM</Name><Number>2615</Number></TyphoonNamePart>',
+    '',
+).replace('台風(TS)', '熱帯低気圧').replace('+35.9+139.9/', '+11.5+145.0/')
+
+BOM_TROPICAL_DIRECTORY = """\
+-rw-r--r--  1 bom  staff  1024 Nov 20  2025 IDD65401.gml
+-rw-r--r--  1 bom  staff  1024 Nov 20  2025 IDW60266.gml
+-rw-r--r--  1 bom  staff  1024 Nov 20  2025 IDW60281.xml
+"""
+
+BOM_TROPICAL_GML = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<tcData xmlns:gml="http://www.opengis.net/gml">
+  <identifier>IDD65401</identifier>
+  <fcastTime>2025-11-20T06:00:00Z</fcastTime>
+  <issueTime>2025-11-20T06:53:03Z</issueTime>
+  <expiryHrs>8</expiryHrs>
+  <distId>AU202526_02U</distId>
+  <distName>Fina</distName>
+  <tcFix><fixType>Current</fixType><category>2</category><gml:Point><gml:coordinates>133.20,-9.85</gml:coordinates></gml:Point></tcFix>
+  <tcTrack><trackType>Forecast</trackType><gml:LineString><gml:coordinates>133.20,-9.85 132.00,-10.30</gml:coordinates></gml:LineString></tcTrack>
+  <tcWarningArea><gml:Polygon><gml:outerBoundaryIs><gml:LinearRing><gml:coordinates>132.0,-10.0 134.0,-10.0 134.0,-8.0 132.0,-10.0</gml:coordinates></gml:LinearRing></gml:outerBoundaryIs></gml:Polygon></tcWarningArea>
+  <tcWatchArea><gml:Polygon><gml:outerBoundaryIs><gml:LinearRing><gml:coordinates>131.0,-11.0 135.0,-11.0 135.0,-7.0 131.0,-11.0</gml:coordinates></gml:LinearRing></gml:outerBoundaryIs></gml:Polygon></tcWatchArea>
+</tcData>
+"""
+
+BOM_TROPICAL_GML_NEWER = BOM_TROPICAL_GML.replace(
+    '<identifier>IDD65401</identifier>',
+    '<identifier>IDW60266</identifier>',
+).replace('2025-11-20T06:53:03Z', '2025-11-20T07:53:03Z')
 
 CAP_ALERT = """\
 <alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
@@ -1898,6 +1955,7 @@ class ProviderBackendTests(unittest.TestCase):
         with (
             patch('wevva_warnings.backends._cap_feed.fetch_text', return_value=NHC_GIS_FEED),
             patch('wevva_warnings.backends.nhc_gis.fetch_bytes', side_effect=fake_fetch_bytes),
+            patch('wevva_warnings.backends.nhc_gis.fetch_text', return_value=NHC_ADVISORY_INFO),
         ):
             systems = backend.fetch_tropical_systems(source)
 
@@ -1911,9 +1969,11 @@ class ProviderBackendTests(unittest.TestCase):
         self.assertEqual(system.center_lon, -70.0)
         self.assertEqual(system.advisory_number, '1')
         self.assertEqual(system.min_pressure, '1002 MB')
+        self.assertEqual(system.max_wind, '50 kt (60 mph / 95 km/h)')
         self.assertEqual(
             system.data_urls,
             {
+                'atcf_xml': 'https://www.nhc.noaa.gov/gis/AL012026_INFO.xml',
                 'forecast_track': 'https://www.nhc.noaa.gov/gis/AL012026_TRACK.kmz',
                 'cone': 'https://www.nhc.noaa.gov/gis/AL012026_CONE.kmz',
                 'watch_warning': 'https://www.nhc.noaa.gov/gis/AL012026_WW.kmz',
@@ -1926,8 +1986,17 @@ class ProviderBackendTests(unittest.TestCase):
         self.assertEqual(system.geometries['watch_warning']['type'], 'Polygon')
         self.assertEqual(system.parameters['NHC Wallet'], ['AL012026'])
         self.assertEqual(system.parameters['ATCF ID'], ['al012026'])
+        self.assertEqual(system.parameters['NHC Saffir-Simpson Category'], ['1'])
+        self.assertEqual(
+            system.parameters['NHC Watches and Warnings'],
+            ['A Hurricane Warning is in effect for the north coast of Bermuda.'],
+        )
+        self.assertEqual(
+            system.parameters['NHC Location References'],
+            ['ABOUT 100 MI EAST OF BERMUDA', 'ABOUT 500 MI SOUTH OF HALIFAX'],
+        )
 
-    def test_jma_tropical_backend_parses_official_tropical_low_discussion(self) -> None:
+    def test_jma_tropical_backend_selects_current_cyclone_products_and_deduplicates(self) -> None:
         backend = JMATropicalBackend()
         source = get_source('jma_tropical')
         assert source is not None
@@ -1935,29 +2004,93 @@ class ProviderBackendTests(unittest.TestCase):
         def fake_fetch_text(url: str, **_: object) -> str:
             documents = {
                 source.url: JMA_TROPICAL_FEED,
-                'https://www.data.jma.go.jp/developer/xml/data/20260131041406_0_VPZJ51_JPTK_311312.xml': JMA_TROPICAL_REPORT,
+                'https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPTI50_010000.xml': JMA_TROPICAL_POSITION_REPORT,
+                'https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPTW60_010000.xml': JMA_TROPICAL_REPORT,
+                'https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPTW61_010000.xml': JMA_TROPICAL_FORMATION_REPORT,
             }
             return documents[url]
 
         with (
             patch('wevva_warnings.backends._cap_feed.fetch_text', side_effect=fake_fetch_text),
-            patch('wevva_warnings.backends.jma_tropical.fetch_text', side_effect=fake_fetch_text),
+            patch('wevva_warnings.backends.jma_tropical.fetch_text', side_effect=fake_fetch_text) as fetch_documents,
         ):
+            systems = backend.fetch_tropical_systems(source)
+
+        self.assertEqual(
+            fetch_documents.call_args_list,
+            [
+                call(
+                    'https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPTI50_010000.xml',
+                    headers={'Accept': 'application/xml, text/xml'},
+                    debug=False,
+                ),
+                call(
+                    'https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPTW60_010000.xml',
+                    headers={'Accept': 'application/xml, text/xml'},
+                    debug=False,
+                ),
+                call(
+                    'https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPTW61_010000.xml',
+                    headers={'Accept': 'application/xml, text/xml'},
+                    debug=False,
+                ),
+            ],
+        )
+        self.assertEqual(len(systems), 2)
+        system = next(system for system in systems if system.id == 'TC2617')
+        self.assertEqual(system.classification, 'Typhoon')
+        self.assertEqual(system.name, 'CHAN-HOM')
+        self.assertEqual(system.basin, 'Northwest Pacific')
+        self.assertEqual(system.center_lat, 35.9)
+        self.assertEqual(system.center_lon, 139.9)
+        self.assertEqual(system.movement, '西南西 at 30 km/h')
+        self.assertEqual(system.min_pressure, '990 hPa')
+        self.assertEqual(system.max_wind, '23 m/s')
+        self.assertEqual(system.parameters['JMA Event ID'], ['TC2617'])
+        self.assertEqual(system.parameters['JMA Typhoon Number'], ['2615'])
+        self.assertEqual(system.parameters['JMA Product Code'], ['VPTW60'])
+        self.assertEqual(system.advisory_number, '62')
+        self.assertEqual(system.parameters['JMA Report Serial'], ['62'])
+        self.assertEqual(system.parameters['JMA Information Type'], ['発表'])
+        self.assertEqual(system.parameters['JMA Analysis Time'], ['2026-08-11T22:00:00+09:00'])
+        self.assertEqual(system.parameters['JMA Raw Classification'], ['台風(TS)'])
+
+        formation = next(system for system in systems if system.id == 'TD2601')
+        self.assertEqual(formation.classification, 'Developing Tropical Depression')
+        self.assertEqual(formation.center_lat, 11.5)
+        self.assertEqual(formation.center_lon, 145.0)
+
+    def test_bom_tropical_backend_parses_track_and_warning_geometry(self) -> None:
+        backend = BoMTropicalBackend()
+        source = get_source('bom_tropical')
+        assert source is not None
+
+        def fake_fetch_text(url: str, **_: object) -> str:
+            documents = {
+                source.url: BOM_TROPICAL_DIRECTORY,
+                'ftp://ftp.bom.gov.au/anon/gen/fwo/IDD65401.gml': BOM_TROPICAL_GML,
+                'ftp://ftp.bom.gov.au/anon/gen/fwo/IDW60266.gml': BOM_TROPICAL_GML_NEWER,
+            }
+            return documents[url]
+
+        with patch('wevva_warnings.backends.bom_tropical.fetch_text', side_effect=fake_fetch_text):
             systems = backend.fetch_tropical_systems(source)
 
         self.assertEqual(len(systems), 1)
         system = systems[0]
-        self.assertEqual(system.id, 'TC2601')
-        self.assertEqual(system.classification, 'Developing Tropical Depression')
-        self.assertEqual(system.name, 'TC2601')
-        self.assertEqual(system.basin, 'Northwest Pacific')
-        self.assertEqual(system.center_lat, 33.0)
-        self.assertEqual(system.center_lon, 133.0)
-        self.assertEqual(system.movement, '北 at 20 km/h')
-        self.assertEqual(system.min_pressure, '998 hPa')
-        self.assertEqual(system.max_wind, '15 m/s')
-        self.assertEqual(system.parameters['JMA Event ID'], ['ZJPTK260001'])
-        self.assertEqual(system.parameters['JMA Tropical Number'], ['TC2601'])
+        self.assertEqual(system.id, 'AU202526_02U')
+        self.assertEqual(system.basin, 'Australian Region')
+        self.assertEqual(system.classification, 'Tropical Cyclone (Category 2)')
+        self.assertEqual(system.name, 'Fina')
+        self.assertEqual(system.center_lat, -9.85)
+        self.assertEqual(system.center_lon, 133.2)
+        self.assertEqual(system.issued_at.isoformat(), '2025-11-20T07:53:03+00:00')
+        self.assertEqual(system.url, 'ftp://ftp.bom.gov.au/anon/gen/fwo/IDW60266.gml')
+        self.assertEqual(system.geometries['forecast_track']['type'], 'LineString')
+        self.assertEqual(system.geometries['warning_area']['type'], 'Polygon')
+        self.assertEqual(system.geometries['watch_area']['type'], 'Polygon')
+        self.assertEqual(system.parameters['BoM Product ID'], ['IDW60266'])
+        self.assertEqual(system.parameters['BoM Current Category'], ['2'])
 
     def test_ea_flood_backend_fetches_polygon_geometry_and_filters_exactly(self) -> None:
         backend = EAFloodBackend()

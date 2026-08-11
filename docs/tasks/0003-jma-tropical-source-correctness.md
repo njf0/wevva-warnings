@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Completed
 
 ## Target repository
 
@@ -59,8 +59,8 @@ path.
   parameters on the retained result.
 - Add fixture coverage representing dedicated cyclone products, regional and
   prefectural false positives, multiple revisions, and a formation product.
-- Update the source notes, README, architecture document, and tropical-systems
-  note to explain exactly what JMA products are represented.
+- Update the source notes, README, and architecture document to explain
+  exactly what JMA products are represented.
 
 ## Non-goals
 
@@ -81,7 +81,7 @@ path.
 - `wevva_warnings/models.py`
 - `wevva_warnings/query.py`
 - `tests/test_provider_backends.py` and JMA fixtures
-- `README.md`, `docs/architecture.md`, and `TROPICAL_SYSTEMS.md`
+- `README.md` and `docs/architecture.md`
 
 ## Approach
 
@@ -136,4 +136,22 @@ path.
 
 ## Outcome
 
-Not started.
+Completed on 2026-08-11.
+
+- The backend now selects only the JMA catalogue's dedicated `VPTI50`–`VPTI52`
+  and `VPTW60`–`VPTW65` tropical products. It picks the newest Atom update for
+  each product code before fetching, so local discussion products are never
+  downloaded as prospective systems.
+- Each report is parsed from its structured meteorological fields. JMA's
+  `EventID` is its cross-product TC number, so it is the public ID; the later
+  typhoon number is retained as source metadata. Report time followed by
+  `VPTW` preference is the deterministic duplicate rule.
+- The retained object preserves JMA product code, Event ID, information tag
+  when present, typhoon number, source URL, centre, movement, pressure and
+  wind. Fixture tests cover a stale revision, a lower-priority companion,
+  excluded local narrative, and a numberless tropical-depression product.
+- Follow-up metadata preservation completed on 2026-08-11: the public
+  `advisory_number` now carries JMA's report serial, while `parameters`
+  preserves the serial, publication type, analysis time, and native JMA class.
+  This keeps useful at-a-glance source facts without expanding the common
+  tropical model.

@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Completed
 
 ## Target repository
 
@@ -60,7 +60,7 @@ be added now and nominate the next official candidate.
 
 ## Relevant code
 
-- `TROPICAL_SYSTEMS.md`
+- `docs/architecture.md`
 - `wevva_warnings/sources.py`
 - `wevva_warnings/backends/nhc_gis.py`
 - `wevva_warnings/backends/jma_tropical.py`
@@ -96,8 +96,8 @@ be added now and nominate the next official candidate.
 - Record URLs and checks performed in the Outcome.
 - Confirm any proposed sample is official and can be transformed into a small,
   deterministic fixture in a later implementation task.
-- Review the decision against `TROPICAL_SYSTEMS.md` and the provider-addition
-  guidance in `AGENTS.md`.
+- Review the decision against the tropical/offshore architecture guidance and
+  the provider-addition guidance in `AGENTS.md`.
 
 ## Decisions and notes
 
@@ -107,4 +107,18 @@ be added now and nominate the next official candidate.
 
 ## Outcome
 
-Not started.
+Go: use the Australian Bureau of Meteorology's public FTP forecast-track GML
+products at `ftp://ftp.bom.gov.au/anon/gen/fwo/`.
+
+The official [BoM warning-products guide](https://www.bom.gov.au/catalogue/Bureau_of_Meteorology_warning_products_user_guide.pdf)
+documents the tropical-cyclone forecast-track products and their GML forms.
+The current directory publishes a small set of stable, region-specific product
+filenames; outside cyclone season it can legitimately contain none of them.
+The official sample catalogue's `IDD65401.gml` demonstrated a stable
+disturbance ID, name, issue time, current centre and category, plus forecast
+track and explicitly labelled watch/warning/forecast/wind geometries.
+
+This is suitable for a storm-centric source, but not for ordinary country
+alerts: track and area layers are retained with their BoM meaning and no land
+warning is inferred. Task 0008 implements the selected source as
+`bom_tropical`.

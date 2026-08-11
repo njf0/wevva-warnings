@@ -48,15 +48,43 @@ application credentials or API keys are configured in this repository.
 
 Setuptools is the build backend. Version and package metadata live in
 `pyproject.toml`; `wevva-warnings = wevva_warnings.cli:main` is the console
-entry point. No publishing configuration, CI release workflow, or documented
-release procedure exists. Releases are manual and use the maintainer's PyPI
-token:
+entry point. There is no publishing configuration or CI release workflow:
+releases are deliberate maintainer actions using uv's authenticated PyPI
+credentials.
 
-1. Update the version in `pyproject.toml` and the local package entry in
-   `uv.lock`.
-2. Run the full unittest suite and `uv build`.
-3. Inspect the generated `dist/` wheel and source distribution, then commit
-   the release changes, create a matching `vX.Y.Z` tag, and push the commit and
-   tag.
-4. Publish the verified artifacts with `uv publish`. Do not place a token in
-   the repository; provide it through uv's supported credential mechanism.
+For a normal release, start from the intended complete working tree and use
+this sequence. Replace the commit message and bump type where appropriate.
+
+```bash
+git status --short
+git diff --check
+
+uv version --bump minor
+uv run python -m unittest discover -s tests -v
+
+rm -rf dist/
+uv build
+
+git status --short
+git diff --check
+git add -A
+git diff --cached --check
+git diff --cached --stat
+git commit -m "Release 0.5.0"
+git tag -a v0.5.0 -m "Release 0.5.0"
+git push origin main
+git push origin v0.5.0
+
+uv publish
+```
+
+`uv version --bump minor` updates `pyproject.toml` and refreshes `uv.lock`.
+Use `patch` for a compatible bug fix or `major` for an intentional breaking
+release. `rm -rf dist/` is safe here because `dist/` contains only generated,
+ignored release artifacts; removing it prevents a previous version's files
+being published by mistake. If no credential is active, first run
+`uv auth login https://upload.pypi.org/legacy/`.
+
+Never retry a failed upload by rebuilding and publishing the same version:
+PyPI filenames are immutable. If PyPI already has one of the version's files,
+verify what was uploaded and make a new version for any changed artifact.

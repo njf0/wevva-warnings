@@ -9,6 +9,8 @@ native point query or geometry.
 
 ## Install
 
+Python 3.12 or later is required.
+
 ```bash
 pip install wevva-warnings
 ```
@@ -44,23 +46,17 @@ wevva-warnings point 40.71 -74.00 US
 wevva-warnings tropical-source nhc_gis_atlantic --formatted
 ```
 
-## Public API
+## Key Python features
 
 ```python
 from wevva_warnings import (
     deduplicate_alerts,
-    get_alert_sources_for_country,
-    get_alerts_for_country,
     get_alerts_for_point,
-    get_alerts_for_source,
     get_native_alerts_for_point,
     get_reusable_alerts_for_country,
     get_swic_extreme_alerts,
     match_alerts_to_point,
-    get_tropical_systems_for_source,
     get_tropical_systems_near,
-    list_sources,
-    WarningQueryProgress,
 )
 ```
 
@@ -68,28 +64,22 @@ The main entry point is:
 
 - `get_alerts_for_point(lat, lon, country_code, lang=None, debug=False, active_only=False, progress=None)`
 
-Useful lower-level helpers:
+Other useful features:
 
-- `get_alert_sources_for_country(country_code, lang=None)`
-- `get_alerts_for_country(country_code, lang=None, active_only=False, progress=None)`
-- `get_reusable_alerts_for_country(country_code, lang=None, active_only=False, progress=None)`
-- `get_native_alerts_for_point(lat, lon, country_code, lang=None, debug=False, active_only=False, progress=None)`
-- `match_alerts_to_point(alerts, lat, lon, active_only=False)`
-- `deduplicate_alerts(alerts)`
-- `get_alerts_for_source(source_id, active_only=False)`
-- `get_swic_extreme_alerts(active_only=True, include_marine=False)`
-- `get_tropical_systems_for_source(source_id)`
-- `get_tropical_systems_near(lat, lon, radius_km=1000.0)`
-- `list_sources()`
+- `get_swic_extreme_alerts(active_only=True, include_marine=False, debug=False)`
+- `get_tropical_systems_near(lat, lon, radius_km=1000.0, source_ids=None, debug=False)`
+- cache-safe reusable/native alert queries with `get_reusable_alerts_for_country()`, `get_native_alerts_for_point()`, `match_alerts_to_point()`, and `deduplicate_alerts()`
 
 Notes:
 
 - the caller supplies the correct `country_code`; the library does not infer country from coordinates
 - if a country has multiple language-specific feeds, English-capable sources are preferred by default
-- if you request an unsupported language, the library warns and falls back to the default source selection
+- if you request an unsupported language tag, the library warns and falls back to the default source selection
 - `get_alerts_for_point(...)` raises `UnsupportedCountryError` when no alert sources are registered for the supplied country
 - returned `Alert` and `TropicalSystem` objects include optional `source_info` metadata when produced through the public query helpers
 - tropical-system sources are not currently routed through `country_code` point queries
+- tropical `source_info.issuer_country_code` is an optional ISO code for the issuing centre's operational location; use it only to rank already-matched systems for presentation, never to filter regional systems
+- tropical systems retain source-specific tracks, cones, wind fields and warning layers; a track or cone is storm context, not automatically a local official warning
 
 ### Global WMO SWIC Extreme-warning discovery
 
@@ -196,15 +186,20 @@ Useful flags:
 
 - `--lang de`
 - `--active`
-- `--debug`
-- `--formatted` for table output on `source` and `tropical-source`
+- `--formatted` for table output on `country`, `source`, `tropical-source`, and `tropical-near`
 - `--radius-km 1000` on `tropical-near`
 - `--source SOURCE_ID` on `tropical-near` to restrict checked tropical-system sources
 - `--kind tropical_system` on `sources` to list only tropical-system sources
+- `--debug` on query commands to show fetch and matching progress
 
 ## Source registry
 
-There are currently **160** enabled sources in the built-in registry.
+There are currently **169** registered sources in the built-in registry:
+**162** alert sources and **7** tropical-system sources. Tropical-system
+coverage includes the NHC/CPHC, JMA and HKO Northwest Pacific products, BoM's
+Australian-region track products, and Météo-France La Réunion's Southwest
+Indian Ocean RSMC data. Use the separate tropical queries because these are
+not country-routed warning feeds.
 For the full current list, use:
 
 ```bash
@@ -215,30 +210,36 @@ The source definitions themselves live in [wevva_warnings/sources.py](wevva_warn
 
 ## Geocode Data
 
-Some EU point matching now uses packaged geocode boundary artifacts derived from
-Meteoalarm source data.
+Some point queries resolve administrative geocodes to packaged boundary
+artifacts when a provider does not supply a CAP polygon.
+
 - `scripts/build_emma_geocodes.py` builds a packaged EMMA geometry dataset
 - `scripts/build_emma_aliases.py` builds a packaged EMMA alias dataset
 - `scripts/build_bom_amoc_geocodes.py` builds a packaged Australian BoM AMOC geometry dataset
 - `scripts/build_jma_area_geocodes.py` builds a packaged JMA area-code geometry dataset
 
-Currently available at runtime:
+Currently supported at runtime:
+
 - Meteoalarm `EMMA_ID` geometry resolution
 - Meteoalarm alias resolution to EMMA geometry, including `NUTS2`, `NUTS3`, `WARNCELL`, `WARNCELLID`, `FIPS` and `CISORP`
 - Australian BoM `AMOC-AreaCode` geometry resolution for polygonal `MW`, `RC`, `ME` and `PW` code families
 - JMA `JMA Area Code` geometry resolution from official JMA GIS boundary datasets
 
-The runtime package is intended to ship only the small derived artifacts under
-`wevva_warnings/data/`. Large upstream source files are treated as build
-inputs, not packaged assets. Geocode geometries now default to packaged
-per-code artifacts for lazy loading at runtime, while EMMA aliases are shipped
-as a small plain JSON mapping.
+The runtime package ships only small derived artifacts under
+`wevva_warnings/data/`. Large upstream source files are build inputs, not
+packaged assets. Geometry is loaded lazily from packaged per-code artifacts;
+EMMA aliases are shipped as a small plain JSON mapping.
 
 Note that the EMMA geocode-polygon mapping is retrieved directly, but the aliases file is a Google Drive link which requires manual download. Both files are derived from the [`Meteoalarm Redistribution Hub`](https://meteoalarm.org/en/live/page/redistribution-hub#list).
 
 The current Australian BoM path is narrower and uses official static BoM spatial
 shapefiles behind `AMOC-AreaCode`, with the first cut focused on polygonal
 `MW`, `RC`, `ME` and `PW` code families.
+
+For sources using the `swic_mirror` backend, a geometry-less CAP alert can also
+receive its matching WMO SWIC map polygon during fetch. This is a bounded,
+best-effort source enrichment: CAP geometry and packaged geocode geometry take
+precedence, and an unavailable WFS response leaves the raw alert unchanged.
 
 Intended pattern:
 
@@ -247,41 +248,42 @@ Intended pattern:
 - ship only small derived boundary artifacts
 - avoid runtime dependence on authenticated or mutable upstream APIs
 
-## Source Gap Tracker
+## Source coverage follow-ups
 
-The [sources.csv](sources.csv) file is a local snapshot of the WMO source list.
-Compared with the current registry, the remaining gaps fall into four useful
+The registry has a few coverage and reliability follow-ups in four useful
 categories.
 
-### Empty feeds
+### Quiet feeds
 
-Some provider backends have not been fully validated against live alerts because the feed was empty when checked. These should be revisited later:
+The following feeds were reachable but had no current alerts when checked on
+2026-08-11. This is not a coverage failure; a future live event is needed to
+exercise their full retrieval path.
 
 | Source ID | Provider | Checked | Note |
 | --- | --- | --- | --- |
-| `nms_belize` | Belize National Meteorological Service | 2026-04-17 | RSS feed was empty |
-| `meteo_cameroon_en` | Cameroon National Meteorology | 2026-04-17 | English feed was empty; French feed was live |
-| `vedur` | Icelandic Meteorological Office | 2026-04-17 | RSS feed was empty |
-| `qatar_caa_en` | Qatar Civil Aviation Authority | 2026-04-17 | RSS feed was empty |
-| `qatar_caa_ar` | Qatar Civil Aviation Authority | 2026-04-17 | RSS feed was empty |
-| `imd_india` | India Meteorological Department | 2026-04-17 | RSS feed was empty |
-| `inam_mz` | INAM Mozambique | 2026-04-17 | RSS feed was empty |
-| `eswatini_met` | Eswatini Meteorological Service | 2026-04-17 | RSS feed was empty |
-| `msj` | Meteorological Service of Jamaica | 2026-04-17 | Atom feed had no active advisories |
-| `dma_anguilla` | Disaster Management Anguilla | 2026-04-17 | Atom feed was empty |
-| `antigua_met` | Antigua and Barbuda Meteorological Service | 2026-04-17 | Atom feed was empty |
-| `dem_barbados` | Department of Emergency Management Barbados | 2026-04-17 | Atom feed was empty |
-| `dmh_myanmar` | Department of Meteorology and Hydrology Myanmar | 2026-04-17 | Atom feed was empty |
-| `meteo_cw_en` | Meteorological Department Curaçao | 2026-04-17 | English feed was empty |
-| `meteoalarm_atom_andorra` | Meteoalarm | 2026-04-17 | Atom feed was empty |
-| `pagasa` | PAGASA | 2026-04-17 | Atom feed was empty |
-| `ametvigilance_dz` | AmetVigilance Algeria | 2026-04-17 | Candidate feed URL returned the web app shell, not a usable RSS or CAP feed |
-| `kuwait_met` | Kuwait Meteorology | 2026-04-17 | Host did not resolve from this environment |
-| `saudi_ncm_en` | Saudi NCM (English) | 2026-04-17 | Feed request hung or returned 503 while checking |
-| `saudi_ncm_ar` | Saudi NCM (Arabic) | 2026-04-17 | Feed request hung while checking |
-| `svg_met` | Saint Vincent and the Grenadines Meteorological Services | 2026-04-17 | Atom feed was empty |
-| `tmd_en` | Thai Meteorological Department | 2026-04-17 | RSS feed was empty |
-| `tmd_th` | Thai Meteorological Department | 2026-04-17 | RSS feed was empty |
+| `vedur` | Icelandic Meteorological Office | 2026-08-11 | RSS feed was empty |
+| `dma_anguilla` | Disaster Management Anguilla | 2026-08-11 | Atom feed was empty |
+| `antigua_met` | Antigua and Barbuda Meteorological Service | 2026-08-11 | Atom feed was empty |
+| `dem_barbados` | Department of Emergency Management Barbados | 2026-08-11 | Atom feed was empty |
+| `dmh_myanmar` | Department of Meteorology and Hydrology Myanmar | 2026-08-11 | Atom feed was empty |
+| `meteo_cw_en` | Meteorological Department Curaçao | 2026-08-11 | English feed was empty |
+
+### Operational follow-ups
+
+These feeds are live, but deserve separate performance or endpoint-resilience
+work rather than being treated as missing coverage:
+
+| Source ID | Provider | Checked | Note |
+| --- | --- | --- | --- |
+| `ametvigilance_dz` | AmetVigilance Algeria | 2026-08-11 | Live, high-volume feed; review performance and product selection |
+| `saudi_ncm_en`, `saudi_ncm_ar` | Saudi NCM | 2026-08-11 | Live, high-volume feeds; English endpoint was notably slow |
+| `svg_met` | Saint Vincent and the Grenadines Meteorological Services | 2026-08-11 | Primary CAPEWS endpoint timed out while checking |
+
+### Recently restored endpoints
+
+PAGASA and the Thai Meteorological Department are currently live. Their focused
+backends support PAGASA's `application/cap+xml` `.cap` documents and TMD's
+current `/uploads/CAP/` document paths, while retaining their legacy URL forms.
 
 
 ### Intentionally skipped language variants

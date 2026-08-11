@@ -44,6 +44,6 @@ def _tmd_alert_urls(root: ElementTree.Element, *, base_url: str) -> list[str]:
         if local_name(item.tag) != 'item':
             continue
         url = absolute_url(base_url, child_text(item, 'link'))
-        if url and '/api/xml/' in url.lower():
+        if url and ('/api/xml/' in url.lower() or '/uploads/cap/' in url.lower()):
             urls.append(url)
     return list(dict.fromkeys(urls))

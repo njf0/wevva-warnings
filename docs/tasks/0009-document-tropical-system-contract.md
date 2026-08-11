@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Partially completed
 
 ## Target repository
 
@@ -12,8 +12,7 @@ Proposed
 
 Tropical-system support is intentionally separate from ordinary country-routed
 weather alerts. It has different data sources, geography, languages, and
-spatial concepts. The repository has an exploratory `TROPICAL_SYSTEMS.md`
-note and terse API/CLI mentions, but no concise user-facing contract for a
+spatial concepts. The documentation needs a concise user-facing contract for a
 consumer such as `wevva`.
 
 Without that contract, a consumer can easily mistake a forecast cone for an
@@ -47,9 +46,8 @@ the historical exploration note.
   never equate `issued_at` with a universal expiry or active status.
 - Update `docs/architecture.md` with the supported tropical query flow,
   progress contract from task 0006 if implemented, and source-boundary rules.
-- Retain `TROPICAL_SYSTEMS.md` as a design/history note or replace it with a
-  clear pointer to the maintained documentation; do not leave contradictory
-  API proposals behind.
+- Keep the maintained README and architecture documentation free of
+  contradictory API proposals or a duplicate exploratory note.
 
 ## Non-goals
 
@@ -65,7 +63,6 @@ the historical exploration note.
 
 - `README.md`
 - `docs/architecture.md`
-- `TROPICAL_SYSTEMS.md`
 - `wevva_warnings/__init__.py`
 - `wevva_warnings/cli.py`
 - `wevva_warnings/models.py`
@@ -115,4 +112,16 @@ the historical exploration note.
 
 ## Outcome
 
-Not started.
+The initial documentation pass completed on 2026-08-11. `README.md` and
+`docs/architecture.md` describe the separate tropical query path, seven
+registered sources, basin coverage, the distinction between descriptive tracks
+and official impact polygons, and source-specific metadata retained by HKO,
+NHC, JMA, and Météo-France La Réunion. The exploratory note was folded into
+the maintained architecture documentation and removed.
+
+The remaining work depends on task 0004. Once tropical queries can return
+explicit match evidence, this task should add a short maintained consumer
+guide showing how `wevva` distinguishes a nearby centre from containment in a
+cone, wind field, watch area, or warning area. It should link to task 0012's
+downstream integration policy rather than duplicating TUI implementation
+details here.
