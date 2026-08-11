@@ -55,6 +55,7 @@ from wevva_warnings import (
     get_alerts_for_source,
     get_native_alerts_for_point,
     get_reusable_alerts_for_country,
+    get_swic_extreme_alerts,
     match_alerts_to_point,
     get_tropical_systems_for_source,
     get_tropical_systems_near,
@@ -76,6 +77,7 @@ Useful lower-level helpers:
 - `match_alerts_to_point(alerts, lat, lon, active_only=False)`
 - `deduplicate_alerts(alerts)`
 - `get_alerts_for_source(source_id, active_only=False)`
+- `get_swic_extreme_alerts(active_only=True, include_marine=False)`
 - `get_tropical_systems_for_source(source_id)`
 - `get_tropical_systems_near(lat, lon, radius_km=1000.0)`
 - `list_sources()`
@@ -88,6 +90,26 @@ Notes:
 - `get_alerts_for_point(...)` raises `UnsupportedCountryError` when no alert sources are registered for the supplied country
 - returned `Alert` and `TropicalSystem` objects include optional `source_info` metadata when produced through the public query helpers
 - tropical-system sources are not currently routed through `country_code` point queries
+
+### Global WMO SWIC Extreme-warning discovery
+
+For a global discovery view—such as a “show me an interesting warning now”
+feature—use the explicit SWIC helper:
+
+```python
+from wevva_warnings import get_swic_extreme_alerts
+
+alerts = get_swic_extreme_alerts()
+```
+
+It returns normal `Alert` objects for WMO SWIC map features classified as
+`Extreme`, grouped by their mirrored CAP URL and with map geometry attached.
+It defaults to locally active, non-marine candidates; pass
+`include_marine=True` to include marine rows, or `active_only=False` to inspect
+the complete WFS response. It is a discovery feed, not a replacement for
+country point queries: its coverage is limited to warnings SWIC maps from
+participating providers. `wevva` should rank or randomly select from the
+returned list rather than treating its order as a severity ranking.
 
 ### Reusable country candidates and native point sources
 
@@ -182,7 +204,7 @@ Useful flags:
 
 ## Source registry
 
-There are currently **159** enabled sources in the built-in registry.
+There are currently **160** enabled sources in the built-in registry.
 For the full current list, use:
 
 ```bash

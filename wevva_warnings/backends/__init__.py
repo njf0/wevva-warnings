@@ -84,6 +84,7 @@ from .vedur import VedurBackend
 from .vmgd import VMGDBackend
 from .weatherzw import WeatherZWBackend
 from .swic_mirror import SWICMirrorBackend
+from .swic_extreme import SWICExtremeBackend
 from .zmd import ZMDBackend
 
 __all__ = [
@@ -170,6 +171,7 @@ __all__ = [
     'VMGDBackend',
     'WeatherZWBackend',
     'SWICMirrorBackend',
+    'SWICExtremeBackend',
     'WarningBackend',
     'ZMDBackend',
 ]

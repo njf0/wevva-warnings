@@ -21,6 +21,14 @@ class WarningSource:
 
 SOURCES: tuple[WarningSource, ...] = (
     WarningSource(
+        id='swic_extreme',
+        name='WMO Severe Weather Information Centre',
+        backend='swic_extreme',
+        country_code=None,
+        url='https://severeweather.wmo.int/f/wfs',
+        notes='Global WMO SWIC mapped Extreme-warning discovery feed. Coverage is limited to mapped participating providers; the dedicated query defaults to active, non-marine candidates.',
+    ),
+    WarningSource(
         id='nws',
         name='U.S. National Weather Service',
         backend='nws',

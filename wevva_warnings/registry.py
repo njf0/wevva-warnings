@@ -86,6 +86,7 @@ from .backends import (
     VMGDBackend,
     WeatherZWBackend,
     WarningBackend,
+    SWICExtremeBackend,
     SWICMirrorBackend,
     ZMDBackend,
 )
@@ -173,6 +174,7 @@ BACKENDS: dict[str, WarningBackend] = {
     'meteoliberia': MeteoLiberiaBackend(),
     'mms': MMSBackend(),
     'swic_mirror': SWICMirrorBackend(),
+    'swic_extreme': SWICExtremeBackend(),
     'zmd': ZMDBackend(),
     'generic_cap': GenericCAPBackend(),
     'meteoalarm_atom': MeteoAlarmAtomBackend(),

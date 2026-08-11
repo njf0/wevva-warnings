@@ -468,6 +468,39 @@ def get_alerts_for_source(
     return deduped
 
 
+def get_swic_extreme_alerts(
+    *,
+    active_only: bool = True,
+    include_marine: bool = False,
+    debug: bool = False,
+) -> list[Alert]:
+    """Return mapped Extreme-warning candidates from WMO SWIC.
+
+    This global discovery helper is deliberately separate from country and
+    point routing. It returns one alert per SWIC CAP URL with the map's
+    polygonal geometry. Results cover only warnings currently represented by
+    the WMO Severe Weather Information Centre, not every warning worldwide.
+
+    ``active_only`` defaults to ``True`` and is evaluated locally with
+    :meth:`Alert.is_active`. Marine warnings are excluded by default; pass
+    ``include_marine=True`` to include SWIC rows marked as marine.
+    """
+    source = get_source('swic_extreme')
+    if source is None:
+        return []
+    backend = get_backend(source)
+    if backend is None:
+        return []
+
+    alerts = backend.fetch_alerts(source, debug=debug, include_marine=include_marine)
+    _attach_alert_source_info(alerts, source)
+    if not active_only:
+        return alerts
+
+    now = _utc_now()
+    return [alert for alert in alerts if alert.is_active(now)]
+
+
 def get_tropical_systems_for_source(
     source_id: str,
     *,

@@ -12,6 +12,8 @@ The public Python boundary is `wevva_warnings/__init__.py`:
   `get_reusable_alerts_for_country()`, `get_native_alerts_for_point()`, and
   `get_alerts_for_source()` return `Alert`; `deduplicate_alerts()` combines
   locally matched and native results using point-query deduplication rules.
+- `get_swic_extreme_alerts()` returns global WMO SWIC mapped Extreme-warning
+  discovery candidates as `Alert` objects. It is not country routing.
 - `get_alert_sources_for_country()` exposes point-query source selection, and
   `match_alerts_to_point()` matches fetched candidates locally.
 - `get_tropical_systems_for_source()` and `get_tropical_systems_near()` return
@@ -78,6 +80,16 @@ matching cached candidates and querying native sources.
 Tropical sources are separate from country routing. A system matches a
 proximity query when its centre is within the radius or the point is in one of
 its polygon geometry layers.
+
+`get_swic_extreme_alerts()` is a separate global discovery path. It requests
+WMO SWIC WFS map features whose severity code is `4`, groups polygon rows by
+their exact mirrored CAP URL, and returns a normal `Alert` for each group. The
+helper locally applies its default `active_only=True` filter and excludes WFS
+rows marked as marine unless requested. It does not fetch country feeds,
+participate in country source selection, or emit the point/country progress
+events. WMO SWIC map coverage is not a complete inventory of worldwide
+warnings; the resulting candidates are intended for an application to rank or
+select.
 
 ## Point-query progress
 
@@ -148,8 +160,8 @@ network request.
 ## Providers
 
 `sources.py` is the source-of-truth inventory: at the time this document was
-added it declares 159 enabled sources (155 alert, 4 tropical-system) across
-84 backend IDs. Use `wevva-warnings sources` or `list_sources()` for the
+added it declares 160 enabled sources (156 alert, 4 tropical-system) across
+85 backend IDs. Use `wevva-warnings sources` or `list_sources()` for the
 current list; do not duplicate that volatile inventory here.
 
 The provider implementations fall into these concrete families:
@@ -157,7 +169,7 @@ The provider implementations fall into these concrete families:
 | Family | Current implementations | Behaviour and provider-specific boundary |
 | --- | --- | --- |
 | Native JSON point query | `nws` | Sends the point upstream and maps NWS GeoJSON features directly. The query layer trusts its native spatial filtering. |
-| Structured or product-specific feeds | `geomet`, `ea_flood`, `hko`, `hydromet_guyana`, `meteoalarm_atom`, `nhc_gis`, `jma`, `jma_tropical`, `swic_mirror` | Parse provider JSON/XML, RSS/Atom or GIS products directly. These adapters hold the source-specific field, URL, geometry, revision, or product-selection rules. `swic_mirror` can add a matching WMO map polygon when CAP has none. `nhc_gis` and `jma_tropical` produce `TropicalSystem`. |
+| Structured or product-specific feeds | `geomet`, `ea_flood`, `hko`, `hydromet_guyana`, `meteoalarm_atom`, `nhc_gis`, `jma`, `jma_tropical`, `swic_mirror`, `swic_extreme` | Parse provider JSON/XML, RSS/Atom or GIS products directly. These adapters hold the source-specific field, URL, geometry, revision, or product-selection rules. `swic_mirror` can add a matching WMO map polygon when CAP has none; `swic_extreme` groups global WFS features for the explicit discovery helper. `nhc_gis` and `jma_tropical` produce `TropicalSystem`. |
 | Generic CAP | `generic_cap` (18 registered sources) | Accepts direct CAP, embedded CAP, RSS, or Atom and follows likely CAP links. Use only when the feed's link discovery works without provider rules. |
 | Focused CAP feed adapters | the remaining alert backends | Fetch a provider feed, select the provider's CAP URLs, then use `_cap_feed.fetch_cap_documents()` and `cap.parse_cap_alert()`. Their small differences are intentional: link location/type, language, fixed or query-style URLs, archive/revision filtering, and area-name cleanup vary by provider. |
 
