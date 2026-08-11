@@ -14,6 +14,8 @@ from wevva_warnings import (
     get_alerts_for_country,
     get_native_alerts_for_point,
     get_reusable_alerts_for_country,
+    get_tropical_systems,
+    match_tropical_systems_to_point,
     match_alerts_to_point,
 )
 from wevva_warnings.models import Alert, TropicalSystem
@@ -892,6 +894,139 @@ class QueryTests(unittest.TestCase):
 
         self.assertEqual(systems, [])
 
+    def test_get_tropical_systems_fetches_raw_selected_or_all_sources_without_a_point(self) -> None:
+        first_source = WarningSource(
+            id='first',
+            name='First Tropical Centre',
+            backend='first',
+            country_code=None,
+            url='https://example.test/first',
+            lang='en',
+            kind='tropical_system',
+        )
+        second_source = WarningSource(
+            id='second',
+            name='Second Tropical Centre',
+            backend='second',
+            country_code=None,
+            url='https://example.test/second',
+            lang='en',
+            kind='tropical_system',
+        )
+        systems_by_source = {
+            'first': [
+                TropicalSystem(
+                    id='first-current',
+                    source='first',
+                    classification='Tropical Storm',
+                    name='ALPHA',
+                    headline='First current report',
+                )
+            ],
+            'second': [
+                TropicalSystem(
+                    id='second-current',
+                    source='second',
+                    classification='Typhoon',
+                    name='BETA',
+                    headline='Second current report',
+                )
+            ],
+        }
+
+        class DummyBackend:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, dict[str, object]]] = []
+
+            def fetch_tropical_systems(self, source, **kwargs):
+                self.calls.append((source.id, kwargs))
+                return systems_by_source[source.id]
+
+        backend = DummyBackend()
+        sources = {'first': first_source, 'second': second_source}
+        with (
+            patch('wevva_warnings.query.get_source', side_effect=sources.get),
+            patch('wevva_warnings.query.get_backend', return_value=backend),
+        ):
+            systems = get_tropical_systems(source_ids=['second', 'missing', 'second', 'first'])
+
+        self.assertEqual([system.id for system in systems], ['second-current', 'first-current'])
+        self.assertEqual(
+            backend.calls,
+            [
+                ('second', {'debug': False}),
+                ('first', {'debug': False}),
+            ],
+        )
+        self.assertIs(systems[0].source_info, second_source)
+        self.assertIs(systems[1].source_info, first_source)
+
+        backend.calls.clear()
+        with (
+            patch('wevva_warnings.query.list_tropical_sources', return_value=[first_source, second_source]),
+            patch('wevva_warnings.query.get_backend', return_value=backend),
+        ):
+            all_systems = get_tropical_systems()
+
+        self.assertEqual([system.id for system in all_systems], ['first-current', 'second-current'])
+        self.assertEqual(
+            backend.calls,
+            [
+                ('first', {'debug': False}),
+                ('second', {'debug': False}),
+            ],
+        )
+
+    def test_match_tropical_systems_to_point_is_local_and_uses_proximity_rules(self) -> None:
+        systems = [
+            TropicalSystem(
+                id='near-center',
+                source='first',
+                classification='Tropical Storm',
+                name='ALPHA',
+                headline='Near centre',
+                center_lat=25.0,
+                center_lon=-70.0,
+            ),
+            TropicalSystem(
+                id='inside-polygon',
+                source='second',
+                classification='Typhoon',
+                name='BETA',
+                headline='Inside polygon',
+                geometries={
+                    'watch_warning': {
+                        'type': 'Polygon',
+                        'coordinates': [[[-71.0, 24.0], [-69.0, 24.0], [-69.0, 26.0], [-71.0, 26.0], [-71.0, 24.0]]],
+                    }
+                },
+            ),
+            TropicalSystem(
+                id='far',
+                source='first',
+                classification='Tropical Depression',
+                name='GAMMA',
+                headline='Far away',
+                center_lat=40.0,
+                center_lon=-90.0,
+            ),
+            TropicalSystem(
+                id='near-center',
+                source='first',
+                classification='Tropical Storm',
+                name='ALPHA',
+                headline='Duplicate current report',
+                center_lat=25.0,
+                center_lon=-70.0,
+            ),
+        ]
+
+        matches = match_tropical_systems_to_point(systems, lat=25.0, lon=-70.5, radius_km=100)
+
+        self.assertEqual([system.id for system in matches], ['near-center', 'inside-polygon'])
+        with self.assertRaisesRegex(ValueError, 'radius_km must be non-negative'):
+            match_tropical_systems_to_point(systems, lat=25.0, lon=-70.5, radius_km=-1)
+
     def test_get_tropical_systems_near_matches_centers_and_polygonal_geometries(self) -> None:
         systems = [
             TropicalSystem(
@@ -1047,8 +1182,8 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(
             backend.calls,
             [
-                ('first', {'lat': 25.0, 'lon': -70.5, 'debug': False}),
-                ('second', {'lat': 25.0, 'lon': -70.5, 'debug': False}),
+                ('first', {'debug': False}),
+                ('second', {'debug': False}),
             ],
         )
         self.assertEqual(

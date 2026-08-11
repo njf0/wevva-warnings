@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import warnings
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 
 from ._debug import bind_progress_callback, emit_progress
@@ -501,32 +501,64 @@ def get_swic_extreme_alerts(
     return [alert for alert in alerts if alert.is_active(now)]
 
 
+def get_tropical_systems(
+    *,
+    source_ids: list[str] | None = None,
+    debug: bool = False,
+) -> list[TropicalSystem]:
+    """Return raw current reports from selected tropical-system sources.
+
+    This fetches each selected source once without applying a point, radius,
+    geometry, or country filter. The returned reports are suitable for an
+    application-owned short-lived cache; pass them to
+    :func:`match_tropical_systems_to_point` for each location. ``source_ids``
+    restricts the fetch to known tropical-system source IDs, while ``None``
+    selects every registered tropical-system source.
+    """
+    sources = _tropical_sources_for_query(source_ids)
+    source_backends = _source_backends(sources)
+    if debug:
+        logging.info('Available tropical providers: %s', [source.id for source, _ in source_backends])
+
+    return [
+        system
+        for _source, system in _fetch_tropical_systems(source_backends, debug=debug)
+    ]
+
+
 def get_tropical_systems_for_source(
     source_id: str,
     *,
     debug: bool = False,
 ) -> list[TropicalSystem]:
-    """Return tropical systems from one tropical-system source."""
-    source = get_source(source_id)
-    if source is None or source.kind != 'tropical_system':
-        return []
+    """Return raw current reports from one tropical-system source.
 
-    backend = get_backend(source)
-    if backend is None:
-        return []
+    This remains the one-source convenience wrapper around
+    :func:`get_tropical_systems`.
+    """
+    return get_tropical_systems(source_ids=[source_id], debug=debug)
 
-    if debug:
-        logging.info('Using tropical-system provider %r via %s()', source.id, backend.__class__.__name__)
 
-    systems = backend.fetch_tropical_systems(source, debug=debug)
-    _attach_tropical_source_info(systems, source)
+def match_tropical_systems_to_point(
+    systems: Iterable[TropicalSystem],
+    *,
+    lat: float,
+    lon: float,
+    radius_km: float = 1000.0,
+) -> list[TropicalSystem]:
+    """Return supplied tropical reports relevant to one point.
 
-    if debug:
-        logging.info('Provider %r is returning %s tropical systems.', source.id, len(systems))
-        for system in systems:
-            logging.info(system)
-
-    return systems
+    Matching is entirely local and makes no network calls. A system matches
+    when its centre is within ``radius_km`` or the point lies in one of its
+    polygonal geometry layers. Source/ID duplicates are removed in the same
+    way as :func:`get_tropical_systems_near`.
+    """
+    return _match_tropical_systems_to_point(
+        systems,
+        lat=lat,
+        lon=lon,
+        radius_km=radius_km,
+    )
 
 
 def get_tropical_systems_near(
@@ -591,46 +623,44 @@ def _get_tropical_systems_near(
         logging.info('Available tropical providers: %s', [source.id for source in sources])
 
     emit_progress('tropical_fetch_started', lat=lat, lon=lon, source_total=len(source_backends))
-    fetched_systems: list[tuple[WarningSource, TropicalSystem]] = []
-    source_candidate_counts: dict[str, int] = {}
-    source_matched_counts: dict[str, int] = {}
-
-    for source, backend in source_backends:
-        emit_progress('tropical_source_started', source=source.id, provider_name=source.name)
-        if debug:
-            logging.info('Using tropical-system provider %r via %s()', source.id, backend.__class__.__name__)
-
-        # Tropical proximity progress deliberately owns this callback lifecycle.
-        # Provider adapters must not leak ordinary alert progress events into it.
-        with bind_progress_callback(None):
-            systems = backend.fetch_tropical_systems(source, lat=lat, lon=lon, debug=debug)
-        _attach_tropical_source_info(systems, source)
-        source_candidate_counts[source.id] = len(systems)
-        source_matched_counts[source.id] = 0
-        fetched_systems.extend((source, system) for system in systems)
-        emit_progress('tropical_source_finished', source=source.id, candidates=len(systems))
+    fetched_systems = _fetch_tropical_systems(
+        source_backends,
+        debug=debug,
+        emit_source_progress=True,
+    )
+    source_candidate_counts = {source.id: 0 for source, _ in source_backends}
+    source_matched_counts = {source.id: 0 for source, _ in source_backends}
+    for source, _system in fetched_systems:
+        source_candidate_counts[source.id] += 1
 
     total_candidates = len(fetched_systems)
     emit_progress('tropical_check_total', total=total_candidates)
 
-    matches: list[TropicalSystem] = []
-    seen: set[tuple[str, str]] = set()
     matched_count = 0
-    for completed, (source, system) in enumerate(fetched_systems, start=1):
-        if _tropical_system_matches_point(system, lat=lat, lon=lon, radius_km=radius_km):
-            matched_count += 1
-            source_matched_counts[source.id] += 1
-            key = (system.source, system.id)
-            if key not in seen:
-                seen.add(key)
-                matches.append(system)
+    completed = 0
+    source_ids_by_position = [source.id for source, _system in fetched_systems]
 
+    def report_checked(system: TropicalSystem, matches_point: bool) -> None:
+        nonlocal completed, matched_count
+        source_id = source_ids_by_position[completed]
+        completed += 1
+        if matches_point:
+            matched_count += 1
+            source_matched_counts[source_id] += 1
         emit_progress(
             'tropical_checked',
             completed=completed,
             total=total_candidates,
             matched=matched_count,
         )
+
+    matches = _match_tropical_systems_to_point(
+        (system for _source, system in fetched_systems),
+        lat=lat,
+        lon=lon,
+        radius_km=radius_km,
+        on_checked=report_checked,
+    )
 
     if debug:
         for source, _backend in source_backends:
@@ -648,6 +678,37 @@ def _get_tropical_systems_near(
 
     emit_progress('tropical_finished', system_count=len(matches))
     return matches
+
+
+def _fetch_tropical_systems(
+    source_backends: list[tuple[WarningSource, object]],
+    *,
+    debug: bool,
+    emit_source_progress: bool = False,
+) -> list[tuple[WarningSource, TropicalSystem]]:
+    """Fetch raw tropical reports for source/backend pairs without a point."""
+    fetched_systems: list[tuple[WarningSource, TropicalSystem]] = []
+    for source, backend in source_backends:
+        if emit_source_progress:
+            emit_progress('tropical_source_started', source=source.id, provider_name=source.name)
+        if debug:
+            logging.info('Using tropical-system provider %r via %s()', source.id, backend.__class__.__name__)
+
+        # Tropical proximity progress deliberately owns this callback lifecycle.
+        # Provider adapters must not leak ordinary alert progress events into it.
+        with bind_progress_callback(None):
+            systems = backend.fetch_tropical_systems(source, debug=debug)
+        _attach_tropical_source_info(systems, source)
+        fetched_systems.extend((source, system) for system in systems)
+
+        if debug:
+            logging.info('Provider %r is returning %s tropical systems.', source.id, len(systems))
+            for system in systems:
+                logging.info(system)
+        if emit_source_progress:
+            emit_progress('tropical_source_finished', source=source.id, candidates=len(systems))
+
+    return fetched_systems
 
 
 def _utc_now() -> datetime:
@@ -751,6 +812,33 @@ def _tropical_sources_for_query(source_ids: list[str] | None) -> list[WarningSou
         seen.add(source.id)
         sources.append(source)
     return sources
+
+
+def _match_tropical_systems_to_point(
+    systems: Iterable[TropicalSystem],
+    *,
+    lat: float,
+    lon: float,
+    radius_km: float,
+    on_checked: Callable[[TropicalSystem, bool], None] | None = None,
+) -> list[TropicalSystem]:
+    """Match supplied tropical reports locally, with optional per-item hook."""
+    if radius_km < 0:
+        raise ValueError('radius_km must be non-negative.')
+
+    matches: list[TropicalSystem] = []
+    seen: set[tuple[str, str]] = set()
+    for system in systems:
+        matches_point = _tropical_system_matches_point(system, lat=lat, lon=lon, radius_km=radius_km)
+        if matches_point:
+            key = (system.source, system.id)
+            if key not in seen:
+                seen.add(key)
+                matches.append(system)
+        if on_checked is not None:
+            on_checked(system, matches_point)
+
+    return matches
 
 
 def _tropical_system_matches_point(

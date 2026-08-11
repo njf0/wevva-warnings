@@ -55,7 +55,9 @@ from wevva_warnings import (
     get_native_alerts_for_point,
     get_reusable_alerts_for_country,
     get_swic_extreme_alerts,
+    get_tropical_systems,
     match_alerts_to_point,
+    match_tropical_systems_to_point,
     get_tropical_systems_near,
 )
 ```
@@ -67,6 +69,7 @@ The main entry point is:
 Other useful features:
 
 - `get_swic_extreme_alerts(active_only=True, include_marine=False, debug=False)`
+- `get_tropical_systems(source_ids=None, debug=False)` and `match_tropical_systems_to_point(systems, lat=..., lon=..., radius_km=1000.0)` for cache-friendly tropical fetching and local proximity matching
 - `get_tropical_systems_near(lat, lon, radius_km=1000.0, source_ids=None, debug=False, progress=None)`
 - cache-safe reusable/native alert queries with `get_reusable_alerts_for_country()`, `get_native_alerts_for_point()`, `match_alerts_to_point()`, and `deduplicate_alerts()`
 
@@ -78,6 +81,7 @@ Notes:
 - `get_alerts_for_point(...)` raises `UnsupportedCountryError` when no alert sources are registered for the supplied country
 - returned `Alert` and `TropicalSystem` objects include optional `source_info` metadata when produced through the public query helpers
 - tropical-system sources are not currently routed through `country_code` point queries
+- applications may cache raw results from `get_tropical_systems()` briefly by source, then call `match_tropical_systems_to_point()` for every selected location; keep this cache separate from ordinary warning candidates
 - tropical `source_info.issuer_country_code` is an optional ISO code for the issuing centre's operational location; use it only to rank already-matched systems for presentation, never to filter regional systems
 - tropical systems retain source-specific tracks, cones, wind fields and warning layers; a track or cone is storm context, not automatically a local official warning
 

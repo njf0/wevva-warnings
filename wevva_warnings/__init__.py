@@ -14,9 +14,11 @@ from .query import (
     get_native_alerts_for_point,
     get_reusable_alerts_for_country,
     get_swic_extreme_alerts,
+    get_tropical_systems,
     get_tropical_systems_for_source,
     get_tropical_systems_near,
     match_alerts_to_point,
+    match_tropical_systems_to_point,
 )
 from .registry import LanguageNotSupportedError, UnsupportedCountryError, list_sources, list_tropical_sources
 from .sources import WarningSource
@@ -43,10 +45,12 @@ __all__ = [
     'get_native_alerts_for_point',
     'get_reusable_alerts_for_country',
     'get_swic_extreme_alerts',
+    'get_tropical_systems',
     'get_tropical_systems_for_source',
     'get_tropical_systems_near',
     'list_sources',
     'list_tropical_sources',
     'match_alerts_to_point',
+    'match_tropical_systems_to_point',
     'resolve_alert_geometry',
 ]

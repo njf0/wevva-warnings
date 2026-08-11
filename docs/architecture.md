@@ -16,8 +16,9 @@ The public Python boundary is `wevva_warnings/__init__.py`:
   discovery candidates as `Alert` objects. It is not country routing.
 - `get_alert_sources_for_country()` exposes point-query source selection, and
   `match_alerts_to_point()` matches fetched candidates locally.
-- `get_tropical_systems_for_source()` and `get_tropical_systems_near()` return
-  `TropicalSystem`.
+- `get_tropical_systems()`, `get_tropical_systems_for_source()`,
+  `match_tropical_systems_to_point()`, and `get_tropical_systems_near()`
+  return `TropicalSystem`.
 - `list_sources()`/`list_tropical_sources()`, `WarningSource`, `Alert`,
   `TropicalSystem`, geometry-resolution helpers, and the documented exceptions
   are also exported.
@@ -84,6 +85,16 @@ its polygon geometry layers. A tropical source may declare
 issuing centre. It is a downstream presentation-priority hint, not a coverage
 claim: applications may rank same-location issuers first among systems already
 matched to a point, but must never use it to filter foreign regional systems.
+
+`get_tropical_systems()` fetches raw current reports from all tropical sources,
+or the explicit `source_ids`, without sending or applying a point. Its output
+is safe for an application-owned short-lived cache, including one cache entry
+per source. `match_tropical_systems_to_point()` then applies the same local
+centre-radius and polygon-layer rules as the one-call
+`get_tropical_systems_near()` helper, including `(source, id)` deduplication.
+It makes no network requests. The library owns neither a cache nor tropical
+country routing; applications must keep tropical reports separate from ordinary
+country-warning candidates.
 
 ### Tropical and offshore products
 
@@ -177,8 +188,11 @@ All fetch events precede `tropical_check_total`. After that event, only
 `tropical_checked` events and `tropical_finished` are emitted. A zero-candidate
 query still emits `tropical_check_total(total=0)` followed by
 `tropical_finished(system_count=0)`. The existing matching rule, source-ID
-filtering, provider fetch requests, debug logging, source/ID deduplication,
-and return value remain unchanged when `progress` is omitted.
+filtering, debug logging, source/ID deduplication, and return value remain
+unchanged when `progress` is omitted. The one-call helper fetches source-wide
+reports and performs its point match locally, just as the two-stage public
+tropical helpers do; only `get_tropical_systems_near()` has this progress
+callback contract.
 
 ## Models and geometry
 
