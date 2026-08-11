@@ -156,6 +156,30 @@ meaning of `matched` remains unchanged. For
 `get_reusable_alerts_for_country()`, `sources_total` and subsequent per-source
 events cover only non-native sources.
 
+### Tropical proximity progress
+
+`get_tropical_systems_near(..., progress=callback)` uses the same synchronous,
+context-local, exception-safe `WarningQueryProgress` callback type, but emits
+only the following tropical-specific events. It does not reuse ordinary alert
+event names, and backend-level alert progress events are not forwarded through
+this public callback.
+
+| Event | Payload | When emitted |
+| --- | --- | --- |
+| `tropical_fetch_started` | `lat`, `lon`, `source_total` | The proximity query has selected tropical sources with available backends. |
+| `tropical_source_started` | `source`, `provider_name` | One selected tropical source is about to be fetched. |
+| `tropical_source_finished` | `source`, `candidates` | That source has returned normalized tropical-system candidates. |
+| `tropical_check_total` | `total` | All selected sources have returned; `total` is the exact number of candidates to check locally. Emitted once. |
+| `tropical_checked` | `completed`, `total`, `matched` | One candidate has been checked. `matched` is the cumulative proximity-match count before `(source, id)` deduplication. |
+| `tropical_finished` | `system_count` | The final source/ID-deduplicated result list is ready. |
+
+All fetch events precede `tropical_check_total`. After that event, only
+`tropical_checked` events and `tropical_finished` are emitted. A zero-candidate
+query still emits `tropical_check_total(total=0)` followed by
+`tropical_finished(system_count=0)`. The existing matching rule, source-ID
+filtering, provider fetch requests, debug logging, source/ID deduplication,
+and return value remain unchanged when `progress` is omitted.
+
 ## Models and geometry
 
 `models.Alert` carries common alert content, timing, area names, raw grouped

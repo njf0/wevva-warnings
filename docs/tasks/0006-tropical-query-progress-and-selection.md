@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Partially completed
 
 ## Target repository
 
@@ -11,10 +11,11 @@ Proposed
 ## Context
 
 The ordinary alert APIs have a documented, exception-safe progress callback.
-The tropical APIs are synchronous too, but only offer `debug` logging. A
+Tropical queries are synchronous too. Task 0015 now gives the nearby-system
+query a narrow fetch-then-proximity-check callback, while
+`get_tropical_systems_for_source()` still offers only `debug` logging. A
 tropical query can fetch one feed per basin and then retrieve multiple linked
-GIS assets, so a TUI has no public way to report that work or distinguish an
-empty result from source-by-source progress.
+GIS assets, so further source-level work needs an explicit public contract.
 
 `get_tropical_systems_near()` already accepts an optional list of source IDs,
 but a consumer otherwise has to fetch all tropical sources. The original
@@ -23,9 +24,8 @@ systems through a country code.
 
 ## Problem
 
-`wevva` cannot provide the same responsive query state for tropical lookups as
-for ordinary warnings, and the public tropical API has no explicit selection
-surface beyond source IDs on one helper.
+`wevva` can now show responsive progress for nearby tropical lookups, but the
+broader source-query and basin-selection surface remains unresolved.
 
 ## Desired outcome
 
@@ -120,4 +120,12 @@ country inference.
 
 ## Outcome
 
-Not started.
+Task 0015 completed the deliberately narrow progress slice for
+`get_tropical_systems_near()` on 2026-08-11. Its tropical event vocabulary is
+now public and stable; do not introduce a competing proximity-query contract
+here.
+
+Remaining scope, if justified by a consumer, is progress for
+`get_tropical_systems_for_source()` and any future detailed helper, plus the
+separate basin/source-selection work. Those additions must use distinct,
+documented event semantics and preserve task 0015's existing proximity events.

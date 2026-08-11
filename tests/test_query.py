@@ -952,6 +952,212 @@ class QueryTests(unittest.TestCase):
         self.assertIs(matches[0].source_info, source)
         self.assertIs(matches[1].source_info, source)
 
+    def test_get_tropical_systems_near_reports_fetch_then_check_progress(self) -> None:
+        first_source = WarningSource(
+            id='first',
+            name='First Tropical Centre',
+            backend='first',
+            country_code=None,
+            url='https://example.test/first',
+            lang='en',
+            kind='tropical_system',
+        )
+        second_source = WarningSource(
+            id='second',
+            name='Second Tropical Centre',
+            backend='second',
+            country_code=None,
+            url='https://example.test/second',
+            lang='en',
+            kind='tropical_system',
+        )
+        systems_by_source = {
+            'first': [
+                TropicalSystem(
+                    id='near',
+                    source='first',
+                    classification='Tropical Storm',
+                    name='ALPHA',
+                    headline='Near centre',
+                    center_lat=25.0,
+                    center_lon=-70.0,
+                ),
+                TropicalSystem(
+                    id='far',
+                    source='first',
+                    classification='Tropical Storm',
+                    name='BETA',
+                    headline='Far away',
+                    center_lat=40.0,
+                    center_lon=-90.0,
+                ),
+                TropicalSystem(
+                    id='near',
+                    source='first',
+                    classification='Tropical Storm',
+                    name='ALPHA',
+                    headline='Repeated near centre',
+                    center_lat=25.0,
+                    center_lon=-70.0,
+                ),
+            ],
+            'second': [
+                TropicalSystem(
+                    id='inside',
+                    source='second',
+                    classification='Tropical Storm',
+                    name='GAMMA',
+                    headline='Inside cone',
+                    geometries={
+                        'cone': {
+                            'type': 'Polygon',
+                            'coordinates': [[[-71.0, 24.0], [-69.0, 24.0], [-69.0, 26.0], [-71.0, 26.0], [-71.0, 24.0]]],
+                        }
+                    },
+                )
+            ],
+        }
+
+        class DummyBackend:
+            def fetch_tropical_systems(self, source, **kwargs):
+                from wevva_warnings._debug import emit_progress
+
+                self.calls.append((source.id, kwargs))
+                emit_progress('alerts_total', source=source.id, total=99, phase='documents')
+                return systems_by_source[source.id]
+
+            def __init__(self):
+                self.calls: list[tuple[str, dict[str, object]]] = []
+
+        backend = DummyBackend()
+        events: list[tuple[str, dict[str, object]]] = []
+
+        with (
+            patch('wevva_warnings.query.list_tropical_sources', return_value=[first_source, second_source]),
+            patch('wevva_warnings.query.get_backend', return_value=backend),
+        ):
+            matches = get_tropical_systems_near(
+                25.0,
+                -70.5,
+                radius_km=100,
+                progress=lambda event, payload: events.append((event, payload)),
+            )
+
+        self.assertEqual([system.id for system in matches], ['near', 'inside'])
+        self.assertEqual(
+            backend.calls,
+            [
+                ('first', {'lat': 25.0, 'lon': -70.5, 'debug': False}),
+                ('second', {'lat': 25.0, 'lon': -70.5, 'debug': False}),
+            ],
+        )
+        self.assertEqual(
+            events,
+            [
+                ('tropical_fetch_started', {'lat': 25.0, 'lon': -70.5, 'source_total': 2}),
+                ('tropical_source_started', {'source': 'first', 'provider_name': 'First Tropical Centre'}),
+                ('tropical_source_finished', {'source': 'first', 'candidates': 3}),
+                ('tropical_source_started', {'source': 'second', 'provider_name': 'Second Tropical Centre'}),
+                ('tropical_source_finished', {'source': 'second', 'candidates': 1}),
+                ('tropical_check_total', {'total': 4}),
+                ('tropical_checked', {'completed': 1, 'total': 4, 'matched': 1}),
+                ('tropical_checked', {'completed': 2, 'total': 4, 'matched': 1}),
+                ('tropical_checked', {'completed': 3, 'total': 4, 'matched': 2}),
+                ('tropical_checked', {'completed': 4, 'total': 4, 'matched': 3}),
+                ('tropical_finished', {'system_count': 2}),
+            ],
+        )
+
+    def test_get_tropical_systems_near_progress_filters_sources_and_reports_zero_candidates(self) -> None:
+        available_source = WarningSource(
+            id='available',
+            name='Available Tropical Centre',
+            backend='available',
+            country_code=None,
+            url='https://example.test/available',
+            lang='en',
+            kind='tropical_system',
+        )
+        unavailable_source = WarningSource(
+            id='unavailable',
+            name='Unavailable Tropical Centre',
+            backend='unavailable',
+            country_code=None,
+            url='https://example.test/unavailable',
+            lang='en',
+            kind='tropical_system',
+        )
+
+        class EmptyBackend:
+            def fetch_tropical_systems(self, source, **kwargs):
+                del source, kwargs
+                return []
+
+        sources = {'available': available_source, 'unavailable': unavailable_source}
+        events: list[tuple[str, dict[str, object]]] = []
+        with (
+            patch('wevva_warnings.query.get_source', side_effect=sources.get),
+            patch(
+                'wevva_warnings.query.get_backend',
+                side_effect=lambda source: EmptyBackend() if source.id == 'available' else None,
+            ),
+        ):
+            matches = get_tropical_systems_near(
+                25.0,
+                -70.0,
+                source_ids=['available', 'unavailable', 'available', 'missing'],
+                progress=lambda event, payload: events.append((event, payload)),
+            )
+
+        self.assertEqual(matches, [])
+        self.assertEqual(
+            events,
+            [
+                ('tropical_fetch_started', {'lat': 25.0, 'lon': -70.0, 'source_total': 1}),
+                ('tropical_source_started', {'source': 'available', 'provider_name': 'Available Tropical Centre'}),
+                ('tropical_source_finished', {'source': 'available', 'candidates': 0}),
+                ('tropical_check_total', {'total': 0}),
+                ('tropical_finished', {'system_count': 0}),
+            ],
+        )
+
+    def test_tropical_progress_callback_failure_does_not_interrupt_proximity_query(self) -> None:
+        system = TropicalSystem(
+            id='near',
+            source='example',
+            classification='Tropical Storm',
+            name='ALPHA',
+            headline='Near centre',
+            center_lat=25.0,
+            center_lon=-70.0,
+        )
+        source = WarningSource(
+            id='example',
+            name='Example Tropical Centre',
+            backend='example',
+            country_code=None,
+            url='https://example.test/tropical',
+            lang='en',
+            kind='tropical_system',
+        )
+
+        class DummyBackend:
+            def fetch_tropical_systems(self, source, **kwargs):
+                del source, kwargs
+                return [system]
+
+        def broken_progress(event: str, payload: dict[str, object]) -> None:
+            del event, payload
+            raise RuntimeError('UI closed')
+
+        with (
+            patch('wevva_warnings.query.list_tropical_sources', return_value=[source]),
+            patch('wevva_warnings.query.get_backend', return_value=DummyBackend()),
+        ):
+            matches = get_tropical_systems_near(25.0, -70.5, radius_km=100, progress=broken_progress)
+
+        self.assertEqual([system.id for system in matches], ['near'])
+
     def test_get_tropical_systems_near_rejects_negative_radius(self) -> None:
         with self.assertRaises(ValueError):
             get_tropical_systems_near(25.0, -70.0, radius_km=-1)

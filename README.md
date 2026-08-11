@@ -67,7 +67,7 @@ The main entry point is:
 Other useful features:
 
 - `get_swic_extreme_alerts(active_only=True, include_marine=False, debug=False)`
-- `get_tropical_systems_near(lat, lon, radius_km=1000.0, source_ids=None, debug=False)`
+- `get_tropical_systems_near(lat, lon, radius_km=1000.0, source_ids=None, debug=False, progress=None)`
 - cache-safe reusable/native alert queries with `get_reusable_alerts_for_country()`, `get_native_alerts_for_point()`, `match_alerts_to_point()`, and `deduplicate_alerts()`
 
 Notes:
@@ -170,6 +170,18 @@ alerts = get_alerts_for_point(60.17, 24.94, "FI", progress=show_progress)
 
 `WarningQueryProgress` is the public callback type. The stable events are
 documented in [docs/architecture.md](docs/architecture.md).
+
+### Tropical proximity progress
+
+`get_tropical_systems_near(..., progress=callback)` uses the same synchronous,
+exception-safe callback type, with its own event names. It first emits
+`tropical_fetch_started` and source-level fetch events, then—after every
+selected source with an available backend has returned—emits one exact
+`tropical_check_total` followed by one `tropical_checked` event per returned
+system and `tropical_finished`.
+This lets a UI show an indeterminate fetch stage followed by a determinate
+local proximity-check count without treating tropical systems as ordinary
+country-routed warnings.
 
 ## CLI
 
