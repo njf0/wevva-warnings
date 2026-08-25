@@ -18,10 +18,18 @@ The public Python boundary is `wevva_warnings/__init__.py`:
   `match_alerts_to_point()` matches fetched candidates locally.
 - `get_tropical_systems()`, `get_tropical_systems_for_source()`,
   `match_tropical_systems_to_point()`, and `get_tropical_systems_near()`
-  return `TropicalSystem`.
+  return source-specific `TropicalSystem` observations.
+- `get_canonical_tropical_systems()` returns `CanonicalTropicalSystem` name
+  groups; `group_tropical_systems()` applies the same grouping to supplied
+  observations without a network request.
+- `get_tropical_products()` lazily returns source-specific `TropicalProduct`
+  enrichment for one selected observation. It is never called by tropical
+  discovery or grouping.
 - `list_sources()`/`list_tropical_sources()`, `WarningSource`, `Alert`,
-  `TropicalSystem`, geometry-resolution helpers, and the documented exceptions
-  are also exported.
+  `TropicalSystem`, `CanonicalTropicalSystem`, `TropicalProduct`,
+  `DisplayGeography`,
+  geometry-resolution helpers, and the documented exceptions are also
+  exported.
 
 The `wevva-warnings` console script in `cli.py` is a second public interface.
 Everything under `backends/`, the registry mapping, and parsing helpers are
@@ -44,6 +52,14 @@ language warns and falls back to default selection. `nws` is the only current
 backend with `uses_native_point_query=True`. All other alert backends are
 filtered locally: an alert without `Polygon`/`MultiPolygon` geometry (explicit
 or resolvable) cannot match a point and is skipped.
+
+Country routing uses the ISO location code supplied by the caller, not a
+sovereignty rewrite. A `WarningSource` can declare
+`additional_country_codes` where one official provider covers multiple ISO
+locations; each such code selects the same source and keeps the original
+country code in public query/progress behaviour. NWS, for example, serves
+the United States plus American Samoa, Guam, the Northern Mariana Islands,
+Puerto Rico, and the US Virgin Islands through its native point API.
 
 `get_alerts_for_source()` fetches an entire source, resolves geometry where
 possible, and deduplicates only `(source, id)`. Point queries additionally
@@ -96,6 +112,23 @@ It makes no network requests. The library owns neither a cache nor tropical
 country routing; applications must keep tropical reports separate from ordinary
 country-warning candidates.
 
+`get_canonical_tropical_systems()` uses that same raw fetch, then groups only
+observations whose non-empty `name` values match after surrounding whitespace
+is removed and case is ignored. `group_tropical_systems()` exposes the local
+part of that operation for already-fetched or already-matched observations.
+Group order and observation order follow the raw input. Empty names remain
+singleton groups. No location, basin, cyclone number, classification, track,
+or other meteorological value participates in identity matching.
+
+A tropical source can declaratively provide basin-specific and source-wide
+display-geography hints. `TropicalSystem.display_geography` resolves an exact
+trimmed, case-insensitive basin match first, then the source-wide hint, then an
+issuer-country `country` value. This does not change issuer identity, source
+routing, proximity matching, or name grouping. The built-in exceptions are
+currently CPHC (Hawaii, `subunit` `US-HI`) and Météo-France La Réunion
+(`map_unit` `RE`). NHC Eastern Pacific observations deliberately use the
+ordinary issuer-country fallback (United States, `country` `US`).
+
 ### Tropical and offshore products
 
 `TropicalSystem` is a storm-centric model rather than a second kind of land
@@ -104,6 +137,52 @@ advisory number, issue time, centre, motion, wind and pressure, alongside
 provider URLs, named geometry layers, and source-specific values in
 `parameters`. Fields may be absent where an official product does not provide
 them; the library does not infer them from a track or headline.
+`CanonicalTropicalSystem` carries only a group display name and its ordered
+`TropicalSystem` observations; it deliberately has no canonical meteorology.
+The CMA adapter retains its ordered analysed positions as `observed_track` and
+the latest BABJ forecast centres as `forecast_track`. The JMA adapter builds
+`forecast_track` only from forecast centres in the same latest VPTW report; it
+does not join superseded advisories after a forecast has ended. HKO uses only
+`ForecastInformation` blocks carrying both a time and numeric forecast-hour
+index for `forecast_track` and structured forecast products; its untimed smooth
+curve vertices are not exposed as forecast fixes.
+
+`TropicalProduct` is a separate lazy detail layer. Its `kind` is a small
+semantic rendering category, while `label` retains provider terminology.
+Optional content defaults to Markdown, with `plain` retained for provider
+layouts that render poorly as Markdown. Optional `data` retains restrained
+provider-specific structure. Missing products and
+different product sets are normal; backends without reliable enrichment
+return an empty list. A failed optional request is isolated from both storm
+discovery and other successfully fetched products.
+Leading blank lines are removed at the product-model boundary without stripping
+indentation from the first meaningful line, preserving headings and code blocks.
+
+NHC and CPHC use the selected observation's temporary wallet to locate Public
+Advisory, Forecast Discussion, Wind Probabilities, Warnings, and Update RSS
+documents in that deterministic order. Wallet routing is not identity: each
+document must contain the observation's ATCF identifier, which excludes stale
+wallet products and placeholders. Known RSS line breaks, HTML entities, and a
+fully recognized WMO/AWIPS transport envelope are normalized conservatively;
+Public Advisory and Forecast Discussion products use Markdown only when their
+known layouts are recognized: document and section headings become Markdown
+headings, ellipsis headlines become block quotes, and fixed-width summary or
+forecast-position rows become indented code blocks. Meteorological prose is
+otherwise unchanged. Wind Probabilities and Tropical Cyclone Updates remain
+faithful plain text, while Warnings use Markdown fixed-width code blocks.
+Unrecognized advisory/discussion layouts and PAGASA bulletin text are
+mechanically escaped into line-preserving Markdown without rewriting their
+prose. The useful top-level GIS feed description remains on
+`TropicalSystem.summary` rather than being duplicated as a supplementary
+product.
+
+PAGASA exposes its current authoritative Tropical Cyclone Bulletin as one
+line-preserving Markdown product rather than artificial section tabs. JMA, CMA/NMC, HKO,
+and Météo-France La Réunion expose structured forecast or analysis details
+from their already integrated official documents. BoM currently returns no
+supplementary products: its integrated GML already supplies the common
+forecast layers, and no speculative GML-to-separate-text-product correlation
+is performed.
 
 Tracks, cones, wind fields, and watches or warnings are distinct provider
 concepts. Backends retain their named layers instead of flattening them into
@@ -248,10 +327,14 @@ amount of entry traversal, but it exposes each provider's fragile feed rule
 locally. There is not evidence here for a broader provider framework.
 
 Every backend subclasses `WarningBackend` and implements `fetch_alerts()`;
-tropical providers additionally override `fetch_tropical_systems()`. A source
+tropical providers additionally override `fetch_tropical_systems()`, and those
+with reliable optional enrichment override `fetch_tropical_products()`. A source
 needs a stable ID, backend ID, kind, and truthful optional country/language
 metadata. `country_code` is country-alert routing metadata; a tropical source
 instead may supply `issuer_country_code` as its operational-centre location.
+It may separately supply source-wide or basin-specific display geography when
+issuer-country geometry would be misleading visual context; absence of an
+explicit hint falls back to the issuer country.
 Global sources deliberately have no routing country code. Non-native alert
 providers also need explicit polygonal geometry or supported geocodes for point
 lookup to be useful.

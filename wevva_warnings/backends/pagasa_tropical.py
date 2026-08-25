@@ -6,8 +6,9 @@ from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 import re
 
-from ..models import Alert, TropicalSystem
+from ..models import Alert, TropicalProduct, TropicalSystem
 from ..sources import WarningSource
+from ._tropical_text import plain_text_to_markdown
 from .base import BackendError, WarningBackend, fetch_text
 
 _PHILIPPINE_TIME = timezone(timedelta(hours=8))
@@ -88,6 +89,38 @@ class PAGASATropicalBackend(WarningBackend):
         system = _parse_pagasa_tropical_bulletin(payload, source=source.id, url=source.url)
         return [system] if system is not None else []
 
+    def fetch_tropical_products(
+        self,
+        source: WarningSource,
+        system: TropicalSystem,
+        *,
+        debug: bool = False,
+    ) -> list[TropicalProduct]:
+        """Fetch the authoritative PAGASA bulletin as one faithful product."""
+        bulletin_url = system.data_urls.get('tropical_cyclone_bulletin') or source.url
+        if not bulletin_url:
+            return []
+        try:
+            payload = fetch_text(bulletin_url, headers={'Accept': 'text/html'}, debug=debug)
+        except BackendError:
+            return []
+        current = _parse_pagasa_tropical_bulletin(payload, source=system.source, url=bulletin_url)
+        if current is None or current.name.casefold() != system.name.casefold():
+            return []
+        content = _bulletin_text(payload)
+        if not content:
+            return []
+        return [
+            TropicalProduct(
+                kind='advisory',
+                label='Tropical Cyclone Bulletin',
+                title=current.headline,
+                issued_at=current.issued_at,
+                content=plain_text_to_markdown(content),
+                url=bulletin_url,
+            )
+        ]
+
 
 class _PageTextParser(HTMLParser):
     """Extract readable lines from PAGASA's server-rendered bulletin page."""
@@ -118,6 +151,49 @@ class _PageTextParser(HTMLParser):
 
     def text(self) -> str:
         """Return normalized non-empty content lines."""
+        lines = [' '.join(line.split()) for line in ''.join(self._parts).splitlines()]
+        return '\n'.join(line for line in lines if line)
+
+
+class _BulletinTextParser(HTMLParser):
+    """Extract only PAGASA's server-rendered bulletin article container."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._parts: list[str] = []
+        self._capture_depth = 0
+        self._ignored_depth = 0
+        self.found = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = dict(attrs)
+        if tag in {'script', 'style'}:
+            self._ignored_depth += 1
+            return
+        if tag == 'div':
+            if self._capture_depth:
+                self._capture_depth += 1
+            elif 'article-content' in (attributes.get('class') or '').split():
+                self._capture_depth = 1
+                self.found = True
+        if self._capture_depth and self._ignored_depth == 0 and tag in _BLOCK_TAGS:
+            self._parts.append('\n')
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {'script', 'style'} and self._ignored_depth:
+            self._ignored_depth -= 1
+            return
+        if self._capture_depth and self._ignored_depth == 0 and tag in _BLOCK_TAGS:
+            self._parts.append('\n')
+        if tag == 'div' and self._capture_depth:
+            self._capture_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._capture_depth and self._ignored_depth == 0:
+            self._parts.append(data)
+
+    def text(self) -> str:
+        """Return normalized non-empty bulletin lines."""
         lines = [' '.join(line.split()) for line in ''.join(self._parts).splitlines()]
         return '\n'.join(line for line in lines if line)
 
@@ -188,6 +264,17 @@ def _page_text(payload: str) -> str:
     except (ValueError, AssertionError):
         return ''
     return parser.text()
+
+
+def _bulletin_text(payload: str) -> str:
+    """Return the bulletin article, with a fixture/legacy-page fallback."""
+    parser = _BulletinTextParser()
+    try:
+        parser.feed(payload)
+        parser.close()
+    except (ValueError, AssertionError):
+        return ''
+    return parser.text() if parser.found else _page_text(payload)
 
 
 def _canonical_classification(value: str) -> str:

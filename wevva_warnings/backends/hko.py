@@ -6,7 +6,7 @@ import re
 from urllib.parse import urljoin
 from xml.etree import ElementTree
 
-from ..models import Alert, Geometry, TropicalSystem
+from ..models import Alert, Geometry, TropicalProduct, TropicalSystem
 from ..sources import WarningSource
 from ._cap_feed import child_text, fetch_cap_documents, fetch_feed_root, local_name
 from .base import BackendError, WarningBackend, fetch_text
@@ -82,6 +82,40 @@ class HKOBackend(WarningBackend):
 
         return sorted(systems, key=lambda system: (system.name.casefold(), system.id))
 
+    def fetch_tropical_products(
+        self,
+        source: WarningSource,
+        system: TropicalSystem,
+        *,
+        debug: bool = False,
+    ) -> list[TropicalProduct]:
+        """Fetch HKO's structured forecast positions for one system."""
+        del source
+        track_url = system.data_urls.get('tropical_cyclone_track')
+        if not track_url:
+            return []
+        try:
+            payload = fetch_text(
+                track_url,
+                headers={'Accept': 'application/xml, text/xml'},
+                debug=debug,
+            )
+        except BackendError:
+            return []
+        forecast = _hko_forecast_product_data(payload, system=system)
+        if forecast is None:
+            return []
+        return [
+            TropicalProduct(
+                kind='forecast',
+                label='Forecast',
+                title=f'{system.name} Forecast',
+                issued_at=system.issued_at,
+                url=track_url,
+                data=forecast,
+            )
+        ]
+
 
 def _hko_alert_urls(root: ElementTree.Element, *, base_url: str) -> list[str]:
     """Return candidate CAP URLs from a Hong Kong Atom feed."""
@@ -132,6 +166,7 @@ def _parse_hko_tropical_track(
     analysis = _first_descendant(report, 'AnalysisInformation')
     past = [node for node in report.iter() if local_name(node.tag) == 'PastInformation']
     forecast = [node for node in report.iter() if local_name(node.tag) == 'ForecastInformation']
+    forecast_fixes = _hko_timed_forecast_fixes(forecast)
     current = analysis if analysis is not None else _latest_information(past)
     if current is None:
         return None
@@ -165,7 +200,7 @@ def _parse_hko_tropical_track(
     observed_track = _hko_track_geometry([*past, *([analysis] if analysis is not None else [])])
     if observed_track is not None:
         geometries['observed_track'] = observed_track
-    forecast_track = _hko_track_geometry(forecast)
+    forecast_track = _hko_track_geometry(forecast_fixes)
     if forecast_track is not None:
         geometries['forecast_track'] = forecast_track
 
@@ -248,6 +283,74 @@ def _hko_track_geometry(nodes: list[ElementTree.Element]) -> Geometry | None:
     if len(points) < 2:
         return None
     return {'type': 'LineString', 'coordinates': points}
+
+
+def _hko_timed_forecast_fixes(
+    nodes: list[ElementTree.Element],
+) -> list[ElementTree.Element]:
+    """Return genuine HKO forecast fixes ordered by their numeric hour index.
+
+    HKO also publishes untimed ``ForecastInformation`` vertices for drawing a
+    smooth curve. Those vertices are presentation geometry, not forecast fixes,
+    and must not become marker positions in the normalized forecast track.
+    """
+    fixes: list[tuple[int, int, ElementTree.Element]] = []
+    for source_order, node in enumerate(nodes):
+        valid_at = _descendant_text(node, 'Time')
+        index = _descendant_text(node, 'Index')
+        if not valid_at or not index:
+            continue
+        try:
+            lead_hours = int(index)
+        except ValueError:
+            continue
+        if lead_hours < 0:
+            continue
+        fixes.append((lead_hours, source_order, node))
+    return [node for _, _, node in sorted(fixes)]
+
+
+def _hko_forecast_product_data(
+    payload: str,
+    *,
+    system: TropicalSystem,
+) -> dict[str, object] | None:
+    """Return HKO forecast blocks while preserving HKO-specific quantities."""
+    try:
+        root = ElementTree.fromstring(payload)
+    except ElementTree.ParseError:
+        return None
+    document_id = (root.attrib.get('tcid') or '').strip()
+    document_name = _descendant_text(root, 'TropicalCycloneName')
+    if document_id:
+        if document_id != system.id:
+            return None
+    elif not document_name or document_name.strip().casefold() != system.name.strip().casefold():
+        return None
+
+    forecast_nodes = [node for node in root.iter() if local_name(node.tag) == 'ForecastInformation']
+    points: list[dict[str, object]] = []
+    for node in _hko_timed_forecast_fixes(forecast_nodes):
+        latitude, longitude = _hko_coordinates(node)
+        if latitude is None or longitude is None:
+            continue
+        point: dict[str, object] = {
+            'latitude': latitude,
+            'longitude': longitude,
+        }
+        valid_at = _descendant_text(node, 'Time')
+        intensity = _descendant_text(node, 'Intensity')
+        wind = _descendant_text(node, 'MaximumWind')
+        if valid_at:
+            point['valid_at'] = valid_at
+        if intensity:
+            point['intensity'] = intensity
+        if wind:
+            point['maximum_wind'] = wind
+        points.append(point)
+    if not points:
+        return None
+    return {'points': points}
 
 
 def _hko_peak_information(

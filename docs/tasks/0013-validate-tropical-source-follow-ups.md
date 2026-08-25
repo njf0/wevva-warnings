@@ -15,6 +15,14 @@ CMA/NMC, PAGASA, BoM, HKO, and Météo-France La Réunion. They are fixture-test
 and selected live endpoints have been smoke-tested, but several useful products
 are inherently seasonal or only appear for certain storm stages.
 
+Selected observations can now be enriched lazily. NHC/CPHC resolve
+storm-wallet text products; JMA, CMA/NMC, HKO, and Météo-France expose
+structured analysis or forecast data; PAGASA exposes its current bulletin;
+BoM deliberately has no supplementary product until a reliable distinct
+official product can be correlated. These adapters still need live-event
+validation because their deterministic tests cannot prove that every seasonal
+layout remains current.
+
 Fiji Meteorological Service remains a promising Southwest Pacific candidate.
 Its current official track page was reachable but server-rendered no system
 data while inactive; no stable active structured payload has yet been captured.
@@ -42,6 +50,15 @@ official payload validates their operational shape.
 
 - During relevant live events, check the registered source outputs against the
   issuer's public page/product and record parse gaps or confirmed behaviour.
+- Validate NHC/CPHC Public Advisory and Forecast Discussion Markdown against
+  live AT/EP/CP products, including conservative fallback for an unrecognized
+  layout. Confirm Wind Probabilities and Updates remain more readable as
+  `plain`, while Warnings remain faithful fixed-width Markdown.
+- Confirm that wallet reassignment cannot leak an old storm product: every
+  returned product must still contain the selected observation's ATCF ID.
+- Validate HKO track XML containing both untimed smooth-curve vertices and
+  timed/indexed forecast fixes. The former must never reappear as forecast
+  markers; consider a separate `forecast_curve` only under task 0017.
 - Capture small, redacted-as-needed structural fixtures from official HKO,
   Météo-France, NHC/CPHC, JMA, and BoM products when they exercise a path not
   already tested.
@@ -74,6 +91,7 @@ official payload validates their operational shape.
 - `wevva_warnings/backends/cma_tropical.py`
 - `wevva_warnings/backends/pagasa_tropical.py`
 - `wevva_warnings/backends/bom_tropical.py`
+- `wevva_warnings/backends/_tropical_text.py`
 - `wevva_warnings/sources.py`
 - `tests/test_provider_backends.py`
 - `tests/test_hko_reunion_tropical.py`
@@ -133,8 +151,9 @@ Meteorological Center candidate was verified and implemented as
   direction, speed, current wind radii, and forecast-agency data.
 - The focused adapter deliberately returns only `start` entries, chooses the
   newest observation, maps compact current facts, and preserves native code
-  and wind-radii values. It does not infer warning geometry or make long
-  tracks a new public surface.
+  and wind-radii values. The later 2026-08-25 enrichment retains the ordered
+  analysed positions as `observed_track` and the latest BABJ positions as
+  `forecast_track`; neither is treated as warning geometry.
 - Fixture tests cover the JSONP wrapper, stopped-system exclusion, latest
   observation, Chinese fallback name, malformed detail, and source metadata.
 
@@ -168,3 +187,25 @@ also produced a positive implementation decision:
 - **Météo-France Nouvelle-Calédonie:** capture the active-system detail
   request behind `https://meteo.nc/fr/cyclone`; its inactive page currently
   exposes only a no-phenomenon state, so no parsing contract should be guessed.
+
+On 2026-08-25, the fixture-backed follow-up work was expanded without claiming
+additional live validation:
+
+- supplementary products are fetched only through
+  `get_tropical_products(system)` after discovery, with provider-specific
+  labels and deterministic ordering;
+- NHC/CPHC wallet products reject stale ATCF identities, isolate individual
+  request failures, and conservatively normalize recognized advisory and
+  discussion layouts;
+- CMA/NMC now retains analysed and BABJ forecast tracks, JMA retains forecast
+  centres from the selected current report, and HKO cleanly separates its
+  observed track from timed 24--120-hour forecast fixes;
+- HKO's untimed smooth display curve is intentionally omitted because the
+  current public geometry vocabulary has no semantic `forecast_curve` key;
+- PAGASA's one authoritative bulletin remains one product instead of being
+  split into artificial tabs.
+
+Still outstanding are live-event validation of those shapes and layouts, the
+NHC wind-field decision from task 0005, the two deferred Southwest Pacific
+sources above, and the BMKG implementation in task 0014. Cross-repository map
+scope and remaining geometry vocabulary decisions are tracked in task 0017.

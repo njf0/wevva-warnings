@@ -17,7 +17,7 @@ from urllib.request import Request, urlopen
 from ..models import Alert
 
 if TYPE_CHECKING:
-    from ..models import TropicalSystem
+    from ..models import TropicalProduct, TropicalSystem
     from ..sources import WarningSource
 
 DEFAULT_TIMEOUT = 180
@@ -86,6 +86,21 @@ class WarningBackend(ABC):
         keep the default empty implementation.
         """
         del source, lat, lon, lang, debug
+        return []
+
+    def fetch_tropical_products(
+        self,
+        source: WarningSource,
+        system: TropicalSystem,
+        *,
+        debug: bool = False,
+    ) -> list[TropicalProduct]:
+        """Return lazy supplementary products for one tropical observation.
+
+        Supplementary products are optional.  Backends without reliable
+        storm-specific enrichment keep this default empty implementation.
+        """
+        del source, system, debug
         return []
 
     @staticmethod

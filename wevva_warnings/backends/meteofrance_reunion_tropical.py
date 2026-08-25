@@ -12,7 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
-from ..models import Alert, Geometry, TropicalSystem
+from ..models import Alert, Geometry, TropicalProduct, TropicalSystem
 from ..sources import WarningSource
 from .base import DEFAULT_TIMEOUT, DEFAULT_USER_AGENT, BackendError, WarningBackend
 
@@ -61,6 +61,49 @@ class MeteoFranceReunionTropicalBackend(WarningBackend):
         ]
         return sorted(systems, key=lambda system: (system.name.casefold(), system.id))
 
+    def fetch_tropical_products(
+        self,
+        source: WarningSource,
+        system: TropicalSystem,
+        *,
+        debug: bool = False,
+    ) -> list[TropicalProduct]:
+        """Fetch detailed RSMC analysis and forecast trajectory data lazily."""
+        try:
+            payload = _fetch_reunion_trajectory(system.id, debug=debug)
+        except BackendError:
+            return []
+        trajectory = payload.get('cyclone_trajectory')
+        if not isinstance(trajectory, dict) or _text(trajectory.get('cyclone_id')) != system.id:
+            return []
+
+        products: list[TropicalProduct] = []
+        analysis = _reunion_analysis_product_data(trajectory)
+        if analysis is not None:
+            products.append(
+                TropicalProduct(
+                    kind='analysis',
+                    label='Analysis',
+                    title=f'{system.name} Analysis',
+                    issued_at=system.issued_at,
+                    url=source.url,
+                    data=analysis,
+                )
+            )
+        forecast = _reunion_forecast_product_data(trajectory)
+        if forecast is not None:
+            products.append(
+                TropicalProduct(
+                    kind='forecast',
+                    label='Forecast',
+                    title=f'{system.name} Forecast',
+                    issued_at=system.issued_at,
+                    url=source.url,
+                    data=forecast,
+                )
+            )
+        return products
+
 
 def _current_season(now: datetime | None = None) -> str:
     """Return the Southwest Indian Ocean season identifier used by Météo-France."""
@@ -104,6 +147,23 @@ def _fetch_current_reunion_payloads(*, season: str, debug: bool) -> list[tuple[d
             continue
         payloads.append((entry, trajectory))
     return payloads
+
+
+def _fetch_reunion_trajectory(cyclone_id: str, *, debug: bool) -> dict[str, Any]:
+    """Fetch one selected trajectory without re-fetching every active system."""
+    cookies = CookieJar()
+    opener = build_opener(HTTPCookieProcessor(cookies))
+    _prime_meteofrance_session(opener, debug=debug)
+    token = _session_token(cookies)
+    if token is None:
+        raise BackendError('Météo-France did not provide an anonymous session token')
+    return _fetch_meteofrance_json(
+        opener,
+        token,
+        'trajectory',
+        params={'cyclone_id': cyclone_id},
+        debug=debug,
+    )
 
 
 def _prime_meteofrance_session(opener: Any, *, debug: bool) -> None:
@@ -285,6 +345,39 @@ def _trajectory_geometry(trajectory: dict[str, Any]) -> dict[str, Geometry]:
     if len(points) < 2:
         return {}
     return {'track': {'type': 'LineString', 'coordinates': points}}
+
+
+def _reunion_analysis_product_data(trajectory: dict[str, Any]) -> dict[str, Any] | None:
+    feature = _latest_analysis_feature(trajectory)
+    return _reunion_feature_data(feature) if feature is not None else None
+
+
+def _reunion_forecast_product_data(trajectory: dict[str, Any]) -> dict[str, Any] | None:
+    points = [
+        data
+        for feature in trajectory.get('features', [])
+        if isinstance(feature, dict)
+        and isinstance(feature.get('properties'), dict)
+        and feature['properties'].get('data_type') == 'forecast'
+        if (data := _reunion_feature_data(feature)) is not None
+    ]
+    return {'points': points} if points else None
+
+
+def _reunion_feature_data(feature: dict[str, Any]) -> dict[str, Any] | None:
+    properties = feature.get('properties')
+    latitude, longitude = _feature_coordinates(feature)
+    if not isinstance(properties, dict) or latitude is None or longitude is None:
+        return None
+    data: dict[str, Any] = {
+        'latitude': latitude,
+        'longitude': longitude,
+    }
+    for key in ('time', 'data_type', 'position_accuracy', 'cyclone_data'):
+        value = properties.get(key)
+        if value is not None:
+            data[key] = value
+    return data
 
 
 def _forecast_peak_information(trajectory: dict[str, Any]) -> str | None:

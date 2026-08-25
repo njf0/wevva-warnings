@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from ._debug import bind_progress_callback, emit_progress
 from .geocoding import resolve_alert_geometry
 from .geometry import point_in_geometry
-from .models import Alert, TropicalSystem
+from .models import Alert, CanonicalTropicalSystem, TropicalProduct, TropicalSystem
 from .progress import WarningQueryProgress
 from .registry import LanguageNotSupportedError, get_backend, get_source, get_sources_for_country, list_tropical_sources
 from .sources import WarningSource
@@ -526,6 +526,51 @@ def get_tropical_systems(
     ]
 
 
+def get_canonical_tropical_systems(
+    *,
+    source_ids: list[str] | None = None,
+    debug: bool = False,
+) -> list[CanonicalTropicalSystem]:
+    """Return current tropical reports grouped by explicit storm name.
+
+    Source observations are fetched through :func:`get_tropical_systems` and
+    retained unchanged.  Names are matched only after trimming surrounding
+    whitespace and applying case-insensitive comparison; observations without
+    a non-empty name remain singleton groups.
+    """
+    return group_tropical_systems(
+        get_tropical_systems(source_ids=source_ids, debug=debug)
+    )
+
+
+def group_tropical_systems(
+    systems: Iterable[TropicalSystem],
+) -> list[CanonicalTropicalSystem]:
+    """Group tropical observations by conservative explicit-name matching.
+
+    Group and observation order follow first appearance in ``systems``.  The
+    input observations are stored directly rather than copied or reconciled.
+    """
+    groups: list[CanonicalTropicalSystem] = []
+    named_groups: dict[str, CanonicalTropicalSystem] = {}
+
+    for system in systems:
+        display_name = system.name.strip()
+        if not display_name:
+            groups.append(CanonicalTropicalSystem(name='', observations=[system]))
+            continue
+
+        key = display_name.casefold()
+        group = named_groups.get(key)
+        if group is None:
+            group = CanonicalTropicalSystem(name=display_name, observations=[])
+            named_groups[key] = group
+            groups.append(group)
+        group.observations.append(system)
+
+    return groups
+
+
 def get_tropical_systems_for_source(
     source_id: str,
     *,
@@ -537,6 +582,38 @@ def get_tropical_systems_for_source(
     :func:`get_tropical_systems`.
     """
     return get_tropical_systems(source_ids=[source_id], debug=debug)
+
+
+def get_tropical_products(
+    system: TropicalSystem,
+    *,
+    debug: bool = False,
+) -> list[TropicalProduct]:
+    """Lazily fetch supplementary products for one source observation.
+
+    The observation's registered source selects the provider adapter.  This
+    call is deliberately separate from tropical-system discovery: ordinary
+    tropical queries never fetch supplementary products.  Unknown, non-
+    tropical, or unsupported sources return an empty list.
+    """
+    source = get_source(system.source)
+    if source is None or source.kind != 'tropical_system':
+        return []
+    backend = get_backend(source)
+    if backend is None:
+        return []
+
+    products = backend.fetch_tropical_products(source, system, debug=debug)
+    if debug:
+        logging.info(
+            'Provider %r returned %s supplementary products for tropical system %r.',
+            source.id,
+            len(products),
+            system.id,
+        )
+        for product in products:
+            logging.info(product)
+    return products
 
 
 def match_tropical_systems_to_point(

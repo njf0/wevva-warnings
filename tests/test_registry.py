@@ -34,6 +34,24 @@ class RegistryTests(unittest.TestCase):
                 self.assertEqual(source.issuer_country_code, source.issuer_country_code.upper())
                 self.assertTrue(source.issuer_country_code.isalpha())
 
+            if source.display_geography is not None:
+                self.assertEqual(source.kind, 'tropical_system')
+                self.assertIn(source.display_geography.kind, {'country', 'map_unit', 'subunit'})
+                self.assertTrue(source.display_geography.code)
+                self.assertTrue(source.display_geography.name)
+
+            for basin, geography in source.basin_display_geographies:
+                self.assertEqual(source.kind, 'tropical_system')
+                self.assertTrue(basin.strip())
+                self.assertIn(geography.kind, {'country', 'map_unit', 'subunit'})
+                self.assertTrue(geography.code)
+
+            self.assertNotIn(source.country_code, source.additional_country_codes)
+            for country_code in source.additional_country_codes:
+                self.assertEqual(len(country_code), 2)
+                self.assertEqual(country_code, country_code.upper())
+                self.assertTrue(country_code.isalpha())
+
             if source.url is not None:
                 self.assertTrue(source.url.startswith(('ftp://', 'http://', 'https://')))
 
@@ -86,6 +104,16 @@ class RegistryTests(unittest.TestCase):
         )
         self.assertTrue(all(source.country_code is None for source in tropical_sources.values()))
         self.assertTrue(all(source.kind == 'alert' for source in get_sources_for_country('US')))
+
+    def test_nws_routes_the_us_and_its_territories_to_one_source(self) -> None:
+        expected_codes = {'US', 'AS', 'GU', 'MP', 'PR', 'VI'}
+
+        for country_code in expected_codes:
+            with self.subTest(country_code=country_code):
+                self.assertEqual(
+                    [source.id for source in get_sources_for_country(country_code)],
+                    ['nws'],
+                )
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -6,7 +6,7 @@ import re
 from datetime import datetime
 from xml.etree import ElementTree
 
-from ..models import Alert, TropicalSystem
+from ..models import Alert, Geometry, TropicalProduct, TropicalSystem
 from ..sources import WarningSource
 from ._cap_feed import absolute_url, fetch_feed_root, local_name
 from .base import BackendError, WarningBackend, fetch_text
@@ -67,6 +67,50 @@ class JMATropicalBackend(WarningBackend):
                 systems[system.id] = system
 
         return sorted(systems.values(), key=lambda system: (system.name.casefold(), system.id))
+
+    def fetch_tropical_products(
+        self,
+        source: WarningSource,
+        system: TropicalSystem,
+        *,
+        debug: bool = False,
+    ) -> list[TropicalProduct]:
+        """Fetch structured forecast detail from the selected JMA report."""
+        del source
+        if not system.url:
+            return []
+        try:
+            payload = fetch_text(
+                system.url,
+                headers={'Accept': 'application/xml, text/xml'},
+                debug=debug,
+            )
+        except BackendError:
+            return []
+
+        product_codes = system.parameters.get('JMA Product Code') or []
+        product_code = product_codes[0] if product_codes else ''
+        parsed = _parse_jma_tropical_report(
+            payload,
+            source=system.source,
+            url=system.url,
+            product_code=product_code,
+        )
+        if parsed is None or parsed.id != system.id:
+            return []
+        forecast = _jma_forecast_product_data(payload)
+        if forecast is None:
+            return []
+        return [
+            TropicalProduct(
+                kind='forecast',
+                label='Forecast',
+                title=f'{system.name} Forecast',
+                issued_at=parsed.issued_at,
+                url=system.url,
+                data=forecast,
+            )
+        ]
 
 
 def _jma_tropical_documents(
@@ -158,6 +202,13 @@ def _parse_jma_tropical_report(
         return None
 
     center_lat, center_lon = _center(item)
+    geometries: dict[str, Geometry] = {}
+    forecast_track = _forecast_track(
+        body,
+        current_center=(center_lat, center_lon),
+    )
+    if forecast_track is not None:
+        geometries['forecast_track'] = forecast_track
     movement = _movement(item)
     pressure = _metric(item, property_type='中心', value_name='Pressure')
     max_wind = _metric(item, property_type='風', value_name='WindSpeed')
@@ -200,6 +251,7 @@ def _parse_jma_tropical_report(
         min_pressure=pressure,
         max_wind=max_wind,
         summary=headline,
+        geometries=geometries,
         parameters=parameters,
     )
 
@@ -284,12 +336,115 @@ def _center(item: ElementTree.Element) -> tuple[float | None, float | None]:
     for property_node in _properties(item):
         if _child_text(property_node, 'Type') != '中心':
             continue
-        coordinate = _descendant_text(property_node, 'Coordinate')
-        if coordinate:
-            match = _CENTER_COORDINATE_RE.search(coordinate)
-            if match:
-                return float(match.group(1)), float(match.group(2))
+        position = _degree_position(property_node, 'Coordinate')
+        if position is not None:
+            return position
     return None, None
+
+
+def _forecast_track(
+    body: ElementTree.Element,
+    *,
+    current_center: tuple[float | None, float | None],
+) -> Geometry | None:
+    """Return forecast centres from the same current VPTW report."""
+    coordinates: list[list[float]] = []
+    current_lat, current_lon = current_center
+    if current_lat is not None and current_lon is not None:
+        coordinates.append([current_lon, current_lat])
+
+    for information in body.iter():
+        if local_name(information.tag) != 'MeteorologicalInfo':
+            continue
+        information_type = _child_attribute(information, 'DateTime', 'type') or ''
+        if not information_type.startswith('予報'):
+            continue
+        item = _first_child(information, 'Item')
+        if item is None:
+            continue
+        point = _forecast_center(item)
+        if point is None:
+            continue
+        lat, lon = point
+        coordinate = [lon, lat]
+        if not coordinates or coordinate != coordinates[-1]:
+            coordinates.append(coordinate)
+
+    if len(coordinates) < 2:
+        return None
+    return {'type': 'LineString', 'coordinates': coordinates}
+
+
+def _forecast_center(item: ElementTree.Element) -> tuple[float, float] | None:
+    for property_node in _properties(item):
+        if _child_text(property_node, 'Type') != '中心':
+            continue
+        position = _degree_position(property_node, 'BasePoint')
+        if position is not None:
+            return position
+    return None
+
+
+def _jma_forecast_product_data(payload: str) -> dict[str, object] | None:
+    """Return JMA forecast blocks with their provider times and metrics."""
+    try:
+        root = ElementTree.fromstring(payload)
+    except ElementTree.ParseError:
+        return None
+    body = _first_descendant(root, 'Body')
+    if body is None:
+        return None
+
+    points: list[dict[str, object]] = []
+    for information in body.iter():
+        if local_name(information.tag) != 'MeteorologicalInfo':
+            continue
+        forecast_type = _child_attribute(information, 'DateTime', 'type') or ''
+        if not forecast_type.startswith('予報'):
+            continue
+        item = _first_child(information, 'Item')
+        point = _forecast_center(item) if item is not None else None
+        if item is None or point is None:
+            continue
+        latitude, longitude = point
+        product_point: dict[str, object] = {
+            'forecast_type': forecast_type,
+            'latitude': latitude,
+            'longitude': longitude,
+        }
+        valid_at = _child_text(information, 'DateTime')
+        pressure = _metric(item, property_type='中心', value_name='Pressure')
+        wind = _metric(item, property_type='風', value_name='WindSpeed')
+        if valid_at:
+            product_point['valid_at'] = valid_at
+        if pressure:
+            product_point['minimum_pressure'] = pressure
+        if wind:
+            product_point['maximum_wind'] = wind
+        points.append(product_point)
+    if not points:
+        return None
+    return {'points': points}
+
+
+def _degree_position(
+    element: ElementTree.Element,
+    element_name: str,
+) -> tuple[float, float] | None:
+    for node in element.iter():
+        if local_name(node.tag) != element_name:
+            continue
+        if node.attrib.get('type') != '中心位置（度）':
+            continue
+        text = ''.join(node.itertext()).strip()
+        match = _CENTER_COORDINATE_RE.search(text)
+        if match is None:
+            continue
+        lat = float(match.group(1))
+        lon = float(match.group(2))
+        if -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0:
+            return lat, lon
+    return None
 
 
 def _movement(item: ElementTree.Element) -> str | None:

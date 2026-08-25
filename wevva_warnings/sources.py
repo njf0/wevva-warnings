@@ -6,14 +6,37 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
+class DisplayGeography:
+    """Natural Earth geography preferred as visual context for a source.
+
+    ``kind`` is ``country``, ``map_unit``, or ``subunit``.  ``code`` is an ISO
+    alpha-2 country/map-unit key or ISO 3166-2 subdivision key, and ``name``
+    is an optional human-readable label.  Absence of an explicit hint means
+    consumers should use ordinary issuer-country resolution.
+    """
+
+    kind: str
+    code: str
+    name: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class WarningSource:
     """Definition of one official warning source.
 
     ``country_code`` selects ordinary country-routed alert sources.  For a
+    provider that officially covers further ISO 3166-1 alpha-2 locations,
+    ``additional_country_codes`` makes that same source available for those
+    locations too.  It records coverage only; callers should continue to
+    provide the actual location code rather than replacing it with a
+    provider's home-country code.  For a
     tropical-system source, ``issuer_country_code`` instead records the ISO
     3166-1 alpha-2 location of its operational issuing centre.  It is
     presentation metadata only: it must not be used to route or exclude
-    tropical systems.
+    tropical systems.  ``display_geography`` optionally identifies a more
+    useful Natural Earth map context without changing issuer semantics.
+    ``basin_display_geographies`` supplies the smaller set of source-and-basin
+    exceptions, which take precedence over the source-wide hint.
     """
 
     id: str
@@ -25,6 +48,25 @@ class WarningSource:
     notes: str | None = None
     kind: str = 'alert'
     issuer_country_code: str | None = None
+    additional_country_codes: tuple[str, ...] = ()
+    display_geography: DisplayGeography | None = None
+    basin_display_geographies: tuple[tuple[str, DisplayGeography], ...] = ()
+
+    def resolve_display_geography(self, basin: str | None = None) -> DisplayGeography | None:
+        """Resolve basin, source, then issuer-country display geography."""
+        normalized_basin = basin.strip().casefold() if isinstance(basin, str) else ''
+        if normalized_basin:
+            for configured_basin, geography in self.basin_display_geographies:
+                if configured_basin.strip().casefold() == normalized_basin:
+                    return geography
+        if self.display_geography is not None:
+            return self.display_geography
+        if self.issuer_country_code is not None:
+            return DisplayGeography(
+                kind='country',
+                code=self.issuer_country_code,
+            )
+        return None
 
 
 SOURCES: tuple[WarningSource, ...] = (
@@ -43,7 +85,8 @@ SOURCES: tuple[WarningSource, ...] = (
         country_code='US',
         url='https://api.weather.gov/alerts/active',
         lang='en',
-        notes='Official NWS alerts API with native point queries.',
+        notes='Official NWS alerts API with native point queries. Also covers the US territories American Samoa (AS), Guam (GU), Northern Mariana Islands (MP), Puerto Rico (PR), and US Virgin Islands (VI).',
+        additional_country_codes=('AS', 'GU', 'MP', 'PR', 'VI'),
     ),
     WarningSource(
         id='ntwc_tsunami',
@@ -70,7 +113,7 @@ SOURCES: tuple[WarningSource, ...] = (
         country_code=None,
         url='https://www.nhc.noaa.gov/gis-at.xml',
         lang='en',
-        notes='Official NOAA NHC GIS RSS feed for active Atlantic tropical cyclones and associated storm GIS products.',
+        notes='Official NOAA NHC GIS RSS feed for active Atlantic tropical cyclones and associated storm GIS products. Selected observations can lazily resolve matching storm-wallet text products.',
         kind='tropical_system',
         issuer_country_code='US',
     ),
@@ -81,7 +124,7 @@ SOURCES: tuple[WarningSource, ...] = (
         country_code=None,
         url='https://www.nhc.noaa.gov/gis-ep.xml',
         lang='en',
-        notes='Official NOAA NHC GIS RSS feed for active Eastern Pacific tropical cyclones and associated storm GIS products.',
+        notes='Official NOAA NHC GIS RSS feed for active Eastern Pacific tropical cyclones and associated storm GIS products. Selected observations can lazily resolve matching storm-wallet text products.',
         kind='tropical_system',
         issuer_country_code='US',
     ),
@@ -92,9 +135,14 @@ SOURCES: tuple[WarningSource, ...] = (
         country_code=None,
         url='https://www.nhc.noaa.gov/gis-cp.xml',
         lang='en',
-        notes='Official NOAA CPHC GIS RSS feed for active Central Pacific tropical cyclones and associated storm GIS products.',
+        notes='Official NOAA CPHC GIS RSS feed for active Central Pacific tropical cyclones and associated storm GIS products. Selected observations can lazily resolve matching storm-wallet text products.',
         kind='tropical_system',
         issuer_country_code='US',
+        display_geography=DisplayGeography(
+            kind='subunit',
+            code='US-HI',
+            name='Hawaii',
+        ),
     ),
     WarningSource(
         id='jma_tropical',
@@ -103,7 +151,7 @@ SOURCES: tuple[WarningSource, ...] = (
         country_code=None,
         url='https://www.data.jma.go.jp/developer/xml/feed/extra.xml',
         lang='ja',
-        notes='Official JMA XML update feed, restricted to the dedicated VPTI50-52 and VPTW60-65 tropical-cyclone products; returns one latest report per system.',
+        notes='Official JMA XML update feed, restricted to the dedicated VPTI50-52 and VPTW60-65 tropical-cyclone products; returns one latest report per system and its forecast-centre track when that report contains forecasts. Selected observations expose those forecast blocks as lazy structured detail.',
         kind='tropical_system',
         issuer_country_code='JP',
     ),
@@ -114,7 +162,7 @@ SOURCES: tuple[WarningSource, ...] = (
         country_code=None,
         url='https://typhoon.nmc.cn/weatherservice/typhoon/jsons/list_default',
         lang='en,zh',
-        notes='Official NMC Typhoon Network current-system feed. The public browser-facing JSONP endpoint supplies active Northwest Pacific and South China Sea system analyses, including centre, intensity, pressure, movement and compact wind-radii metadata.',
+        notes='Official NMC Typhoon Network current-system feed. The public browser-facing JSONP endpoint supplies active Northwest Pacific and South China Sea analyses, including centre, intensity, pressure, movement, compact wind-radii metadata, analysed positions and the latest BABJ forecast track. Selected observations expose BABJ forecast points as lazy structured detail.',
         kind='tropical_system',
         issuer_country_code='CN',
     ),
@@ -125,7 +173,7 @@ SOURCES: tuple[WarningSource, ...] = (
         country_code=None,
         url='https://www.pagasa.dost.gov.ph/index.php/tropical-cyclone/severe-weather-bulletin/1',
         lang='en',
-        notes='Official PAGASA current Tropical Cyclone Bulletin page for the Philippine Area of Responsibility. It returns one current system only while active and an explicit no-active-system message between events; archive bulletin links are not treated as current.',
+        notes='Official PAGASA current Tropical Cyclone Bulletin page for the Philippine Area of Responsibility. It returns one current system only while active and an explicit no-active-system message between events; archive bulletin links are not treated as current. The selected current bulletin is also available lazily as one faithful line-preserving Markdown product.',
         kind='tropical_system',
         issuer_country_code='PH',
     ),
@@ -147,7 +195,7 @@ SOURCES: tuple[WarningSource, ...] = (
         country_code=None,
         url='https://www.weather.gov.hk/wxinfo/currwx/tc_list.xml',
         lang='en,zh',
-        notes='Official HKO tropical-cyclone list and per-system track XML for systems within HKO’s published Northwest Pacific and South China Sea responsibility region. Includes current analysis, past positions and, when issued, forecast positions.',
+        notes='Official HKO tropical-cyclone list and per-system track XML for systems within HKO’s published Northwest Pacific and South China Sea responsibility region. Includes current analysis and past positions; forecast tracks and lazy structured detail use only positions carrying both a valid time and numeric forecast-hour index, not untimed display-curve vertices.',
         kind='tropical_system',
         issuer_country_code='HK',
     ),
@@ -158,9 +206,14 @@ SOURCES: tuple[WarningSource, ...] = (
         country_code=None,
         url='https://meteofrance.re/fr/cyclone',
         lang='fr',
-        notes='Official Météo-France La Réunion RSMC current Southwest Indian Ocean cyclone data, obtained from the public site’s anonymous session-backed trajectory service. Includes analysed centre, intensity, wind and pressure data, plus the published track.',
+        notes='Official Météo-France La Réunion RSMC current Southwest Indian Ocean cyclone data, obtained from the public site’s anonymous session-backed trajectory service. Includes analysed centre, intensity, wind and pressure data, plus the published track; selected observations expose lazy structured analysis and forecast detail.',
         kind='tropical_system',
         issuer_country_code='RE',
+        display_geography=DisplayGeography(
+            kind='map_unit',
+            code='RE',
+            name='Réunion',
+        ),
     ),
     WarningSource(
         id='geomet',

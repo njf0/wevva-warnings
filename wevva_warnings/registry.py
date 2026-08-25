@@ -329,7 +329,11 @@ def get_sources_for_country(
     country_sources = [
         source
         for source in SOURCES
-        if source.country_code == normalized_country and source.kind == 'alert'
+        if source.kind == 'alert'
+        and (
+            source.country_code == normalized_country
+            or normalized_country in source.additional_country_codes
+        )
     ]
     if not country_sources:
         raise UnsupportedCountryError(country_code)

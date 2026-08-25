@@ -8,25 +8,28 @@ from contextlib import contextmanager
 from typing import Iterator, TypeVar
 
 import typer
-from rich.console import Console
+from rich.console import Console, Group
 from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.pretty import Pretty
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 from rich.text import Text
+from rich.tree import Tree
 
 from ._debug import bind_progress_callback
-from .models import Alert, TropicalSystem
+from .models import Alert, CanonicalTropicalSystem, TropicalProduct, TropicalSystem
 from .query import (
     get_alerts_for_country,
     get_alerts_for_point,
     get_alerts_for_source,
+    get_canonical_tropical_systems,
+    get_tropical_products,
     get_tropical_systems_for_source,
     get_tropical_systems_near,
 )
 from .registry import UnsupportedCountryError, get_source, list_sources
-from .sources import WarningSource
+from .sources import DisplayGeography, WarningSource
 
 app = typer.Typer(
     add_completion=False,
@@ -122,6 +125,47 @@ def tropical_source(
         formatted=formatted,
         debug=debug,
     )
+
+
+@app.command('tropical-products')
+def tropical_products(
+    source_id: str = typer.Argument(..., help='Built-in tropical-system source identifier to query.'),
+    system_id: str = typer.Argument(..., help='Source-specific tropical-system identifier.'),
+    content: bool = typer.Option(False, '--content', help='Include complete product content and structured data.'),
+    debug: bool = typer.Option(False, '--debug', help='Show more progress information while fetching products.'),
+) -> None:
+    """Inspect lazy supplementary products for one current tropical system."""
+    _render_tropical_products_query(
+        source_id,
+        system_id,
+        include_content=content,
+        debug=debug,
+    )
+
+
+@app.command('tropical-groups')
+def tropical_groups(
+    source_ids: list[str] | None = typer.Option(
+        None,
+        '--source',
+        help='Optional tropical-system source id. Can be supplied more than once.',
+    ),
+    debug: bool = typer.Option(False, '--debug', help='Show more progress information while fetching tropical systems.'),
+) -> None:
+    """Retrieve current tropical systems grouped by explicit storm name."""
+    render_console, groups = _run_with_optional_debug(
+        lambda debug_enabled: get_canonical_tropical_systems(
+            source_ids=source_ids,
+            debug=debug_enabled,
+        ),
+        debug=debug,
+    )
+
+    if not groups:
+        render_console.print('[bold yellow]No tropical systems.[/bold yellow]')
+        return
+
+    render_console.print(_render_canonical_tropical_systems(groups))
 
 
 @app.command('tropical-near', context_settings={'ignore_unknown_options': True})
@@ -330,6 +374,58 @@ def _render_tropical_source_query(
 
     for system in systems:
         render_console.print(_render_tropical_system_object(system))
+
+
+def _render_tropical_products_query(
+    source_id: str,
+    system_id: str,
+    *,
+    include_content: bool,
+    debug: bool,
+) -> None:
+    """Discover one current observation, then lazily inspect its products."""
+    source = get_source(source_id)
+    if source is None:
+        typer.secho(f'No source is registered with id {source_id!r}.', err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=2)
+    if source.kind != 'tropical_system':
+        typer.secho(
+            f"Source {source_id!r} is an alert source, not a tropical-system source.",
+            err=True,
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(code=2)
+
+    render_console, systems = _run_with_optional_debug(
+        lambda debug_enabled: get_tropical_systems_for_source(source_id, debug=debug_enabled),
+        debug=debug,
+    )
+    system = next(
+        (candidate for candidate in systems if candidate.id.casefold() == system_id.casefold()),
+        None,
+    )
+    if system is None:
+        typer.secho(
+            f'No current tropical system {system_id!r} was returned by source {source_id!r}.',
+            err=True,
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(code=2)
+
+    render_console, products = _run_with_optional_debug(
+        lambda debug_enabled: get_tropical_products(system, debug=debug_enabled),
+        debug=debug,
+    )
+    if not products:
+        render_console.print('[bold yellow]No supplementary products.[/bold yellow]')
+        return
+    render_console.print(
+        _render_tropical_products(
+            system,
+            products,
+            include_content=include_content,
+        )
+    )
 
 
 def _render_tropical_near_query(
@@ -718,6 +814,79 @@ def _render_tropical_system_object(system: TropicalSystem) -> Panel:
         expand=True,
         border_style='magenta',
     )
+
+
+def _render_tropical_products(
+    system: TropicalSystem,
+    products: list[TropicalProduct],
+    *,
+    include_content: bool,
+) -> Panel:
+    """Render deterministic product metadata and optional complete payloads."""
+    product_panels: list[Panel] = []
+    for product in products:
+        details = Text()
+        details.append('Kind: ', style='bold')
+        details.append(product.kind)
+        if product.issued_at is not None:
+            details.append('\nIssued: ', style='bold')
+            details.append(product.issued_at.isoformat())
+        if product.content_format:
+            details.append('\nFormat: ', style='bold')
+            details.append(product.content_format)
+        if product.url:
+            details.append('\nURL: ', style='bold')
+            details.append(product.url)
+
+        renderables: list[object] = [details]
+        if include_content and product.content is not None:
+            renderables.extend([Text('\nContent', style='bold'), Text(product.content)])
+        if include_content and product.data is not None:
+            renderables.extend([Text('\nData', style='bold'), Pretty(product.data, expand_all=True)])
+        product_panels.append(
+            Panel(
+                Group(*renderables),
+                title=product.label,
+                subtitle=product.title,
+                border_style='cyan',
+                expand=True,
+            )
+        )
+    source_name = system.source_info.name if system.source_info is not None else system.source
+    return Panel(
+        Group(*product_panels),
+        title=f'{system.name} / {source_name}',
+        border_style='magenta',
+        expand=True,
+    )
+
+
+def _render_canonical_tropical_systems(
+    groups: list[CanonicalTropicalSystem],
+) -> Group:
+    """Render grouped tropical systems with source geography context."""
+    trees: list[Tree] = []
+    for group in groups:
+        tree = Tree(Text(group.name or '(unnamed system)', style='bold magenta'))
+        for observation in group.observations:
+            source = observation.source_info
+            source_name = source.name if source is not None else observation.source
+            source_branch = tree.add(f'[bold]{source_name}[/bold] [dim]({observation.source})[/dim]')
+            source_branch.add(f'Observation: {observation.id}')
+            geography = observation.display_geography
+            if geography is not None and geography.name is not None:
+                source_branch.add(f'Display geography: {_format_display_geography(geography)}')
+            else:
+                default_code = geography.code if geography is not None else None
+                default_label = f'default ({default_code})' if default_code else 'default'
+                source_branch.add(f'Display geography: {default_label}')
+        trees.append(tree)
+    return Group(*trees)
+
+
+def _format_display_geography(geography: DisplayGeography) -> str:
+    """Return one compact explicit display-geography hint."""
+    return f'{geography.name} ({geography.kind}: {geography.code})'
 
 
 def _normalize_source_kind(kind: str | None) -> str | None:

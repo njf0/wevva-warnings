@@ -6,7 +6,7 @@ from datetime import timedelta
 import unittest
 from unittest.mock import patch
 
-from wevva_warnings import get_tropical_systems_for_source
+from wevva_warnings import get_tropical_products, get_tropical_systems_for_source
 from wevva_warnings.backends.cma_tropical import CMATropicalBackend
 from wevva_warnings.registry import get_source
 
@@ -81,10 +81,25 @@ class CMATropicalTests(unittest.TestCase):
             ['[["30KTS",250,200,150,200,1002],["50KTS",80,60,50,70,1002]]'],
         )
         self.assertEqual(system.parameters['CMA Forecast Agencies'], ['BABJ'])
+        self.assertEqual(
+            system.geometries['observed_track'],
+            {
+                'type': 'LineString',
+                'coordinates': [[120.1, 19.5], [120.6, 20.0]],
+            },
+        )
+        self.assertEqual(
+            system.geometries['forecast_track'],
+            {
+                'type': 'LineString',
+                'coordinates': [[120.6, 20.0], [119.5, 20.5]],
+            },
+        )
 
         depression = systems[1]
         self.assertEqual(depression.name, '热带低压')
         self.assertEqual(depression.classification, 'Tropical Depression')
+        self.assertEqual(depression.geometries, {})
 
     def test_public_query_attaches_cma_source_info_and_ignores_bad_detail(self) -> None:
         source = get_source('cma_tropical')
@@ -104,6 +119,56 @@ class CMATropicalTests(unittest.TestCase):
         self.assertEqual(len(systems), 1)
         self.assertIs(systems[0].source_info, source)
         self.assertEqual(systems[0].source_info.issuer_country_code, 'CN')
+
+    def test_product_query_exposes_current_babj_forecast_without_text_fabrication(self) -> None:
+        source = get_source('cma_tropical')
+        assert source is not None
+        detail_url = 'https://typhoon.nmc.cn/weatherservice/typhoon/jsons/view_101'
+        documents = {
+            source.url: CMA_LIST,
+            detail_url: CMA_ALPHA_DETAIL,
+            'https://typhoon.nmc.cn/weatherservice/typhoon/jsons/view_103': CMA_DEPRESSION_DETAIL,
+        }
+
+        with patch(
+            'wevva_warnings.backends.cma_tropical.fetch_text',
+            side_effect=lambda url, **_: documents[url],
+        ):
+            system = get_tropical_systems_for_source('cma_tropical')[0]
+
+        with patch(
+            'wevva_warnings.backends.cma_tropical.fetch_text',
+            return_value=CMA_ALPHA_DETAIL,
+        ) as fetch_product:
+            products = get_tropical_products(system)
+
+        fetch_product.assert_called_once_with(
+            detail_url,
+            headers={'Accept': 'application/javascript, application/json, text/plain'},
+            debug=False,
+        )
+        self.assertEqual([(product.kind, product.label) for product in products], [('forecast', 'Forecast')])
+        self.assertIsNone(products[0].content)
+        self.assertEqual(products[0].content_format, 'markdown')
+        self.assertEqual(
+            products[0].data,
+            {
+                'agency': 'BABJ',
+                'points': [
+                    {
+                        'latitude': 20.5,
+                        'longitude': 119.5,
+                        'lead_hours': 12,
+                        'forecast_base_at': '2026-08-11T06:00:00+08:00',
+                        'valid_at': '2026-08-11T18:00:00+08:00',
+                        'minimum_pressure_hpa': 970,
+                        'maximum_wind_mps': 38,
+                        'classification': 'Typhoon',
+                        'classification_code': 'TY',
+                    }
+                ],
+            },
+        )
 
 
 if __name__ == '__main__':

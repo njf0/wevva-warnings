@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import call, patch
 import zipfile
 
-from wevva_warnings import match_alerts_to_point
+from wevva_warnings import get_tropical_products, match_alerts_to_point
 from wevva_warnings.backends.aemet import AEMETBackend
 from wevva_warnings.backends.anmeteo import ANMETEOBackend
 from wevva_warnings.backends.bahrain import BahrainBackend
@@ -787,6 +787,7 @@ NHC_GIS_FEED = """\
       <title>Summary - Tropical Storm ALPHA (AL012026/al012026)</title>
       <link>https://www.nhc.noaa.gov/text/MIATCPAT1.shtml</link>
       <guid isPermaLink="false">summary-al012026-202606011500</guid>
+      <description>Alpha remains offshore while moving northwest.</description>
       <nhc:Cyclone>
         <nhc:center>25.0, -70.0</nhc:center>
         <nhc:type>Tropical Storm</nhc:type>
@@ -1289,6 +1290,24 @@ JMA_TROPICAL_REPORT = """\
 </Body>
 </Report>
 """
+
+JMA_TROPICAL_FORECAST_REPORT = JMA_TROPICAL_REPORT.replace(
+    '</MeteorologicalInfo>\n</MeteorologicalInfos>',
+    '''</MeteorologicalInfo>
+<MeteorologicalInfo>
+<DateTime type="予報　２４時間後">2026-08-12T22:00:00+09:00</DateTime>
+<Item><Kind><Property><Type>中心</Type><CenterPart><ProbabilityCircle type="予報円">
+<jmx_eb:BasePoint type="中心位置（度）">+36.5+141.0/</jmx_eb:BasePoint>
+</ProbabilityCircle></CenterPart></Property></Kind></Item>
+</MeteorologicalInfo>
+<MeteorologicalInfo>
+<DateTime type="予報　４８時間後">2026-08-13T22:00:00+09:00</DateTime>
+<Item><Kind><Property><Type>中心</Type><CenterPart><ProbabilityCircle type="予報円">
+<jmx_eb:BasePoint type="中心位置（度）">+37.0+142.0/</jmx_eb:BasePoint>
+</ProbabilityCircle></CenterPart></Property></Kind></Item>
+</MeteorologicalInfo>
+</MeteorologicalInfos>''',
+)
 
 JMA_TROPICAL_POSITION_REPORT = JMA_TROPICAL_REPORT.replace(
     '<Title>台風解析・予報情報</Title>',
@@ -1970,6 +1989,7 @@ class ProviderBackendTests(unittest.TestCase):
         self.assertEqual(system.advisory_number, '1')
         self.assertEqual(system.min_pressure, '1002 MB')
         self.assertEqual(system.max_wind, '50 kt (60 mph / 95 km/h)')
+        self.assertEqual(system.summary, 'Alpha remains offshore while moving northwest.')
         self.assertEqual(
             system.data_urls,
             {
@@ -2005,7 +2025,7 @@ class ProviderBackendTests(unittest.TestCase):
             documents = {
                 source.url: JMA_TROPICAL_FEED,
                 'https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPTI50_010000.xml': JMA_TROPICAL_POSITION_REPORT,
-                'https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPTW60_010000.xml': JMA_TROPICAL_REPORT,
+                'https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPTW60_010000.xml': JMA_TROPICAL_FORECAST_REPORT,
                 'https://www.data.jma.go.jp/developer/xml/data/20260811130000_0_VPTW61_010000.xml': JMA_TROPICAL_FORMATION_REPORT,
             }
             return documents[url]
@@ -2054,11 +2074,51 @@ class ProviderBackendTests(unittest.TestCase):
         self.assertEqual(system.parameters['JMA Information Type'], ['発表'])
         self.assertEqual(system.parameters['JMA Analysis Time'], ['2026-08-11T22:00:00+09:00'])
         self.assertEqual(system.parameters['JMA Raw Classification'], ['台風(TS)'])
+        self.assertEqual(
+            system.geometries['forecast_track'],
+            {
+                'type': 'LineString',
+                'coordinates': [[139.9, 35.9], [141.0, 36.5], [142.0, 37.0]],
+            },
+        )
 
         formation = next(system for system in systems if system.id == 'TD2601')
         self.assertEqual(formation.classification, 'Developing Tropical Depression')
         self.assertEqual(formation.center_lat, 11.5)
         self.assertEqual(formation.center_lon, 145.0)
+        self.assertEqual(formation.geometries, {})
+
+        with patch(
+            'wevva_warnings.backends.jma_tropical.fetch_text',
+            return_value=JMA_TROPICAL_FORECAST_REPORT,
+        ) as fetch_product:
+            products = get_tropical_products(system)
+
+        fetch_product.assert_called_once_with(
+            system.url,
+            headers={'Accept': 'application/xml, text/xml'},
+            debug=False,
+        )
+        self.assertEqual([(product.kind, product.label) for product in products], [('forecast', 'Forecast')])
+        self.assertEqual(
+            products[0].data,
+            {
+                'points': [
+                    {
+                        'forecast_type': '予報　２４時間後',
+                        'latitude': 36.5,
+                        'longitude': 141.0,
+                        'valid_at': '2026-08-12T22:00:00+09:00',
+                    },
+                    {
+                        'forecast_type': '予報　４８時間後',
+                        'latitude': 37.0,
+                        'longitude': 142.0,
+                        'valid_at': '2026-08-13T22:00:00+09:00',
+                    },
+                ],
+            },
+        )
 
     def test_bom_tropical_backend_parses_track_and_warning_geometry(self) -> None:
         backend = BoMTropicalBackend()

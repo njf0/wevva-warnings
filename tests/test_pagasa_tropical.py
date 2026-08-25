@@ -6,7 +6,7 @@ from datetime import timedelta
 import unittest
 from unittest.mock import patch
 
-from wevva_warnings import get_tropical_systems_for_source
+from wevva_warnings import get_tropical_products, get_tropical_systems_for_source
 from wevva_warnings.backends.pagasa_tropical import PAGASATropicalBackend
 from wevva_warnings.registry import get_source
 
@@ -72,6 +72,25 @@ class PAGASATropicalTests(unittest.TestCase):
         assert source is not None
         with patch('wevva_warnings.backends.pagasa_tropical.fetch_text', return_value=PAGASA_INACTIVE_HTML):
             self.assertEqual(PAGASATropicalBackend().fetch_tropical_systems(source), [])
+
+    def test_product_query_returns_one_provider_named_bulletin_without_site_chrome(self) -> None:
+        source = get_source('pagasa_tropical')
+        assert source is not None
+        active_page = PAGASA_ACTIVE_HTML.replace(
+            '<html><body>',
+            '<html><body><nav>Weather navigation</nav><div class="article-content">',
+        ).replace('</body></html>', '</div><footer>Site footer</footer></body></html>')
+
+        with patch('wevva_warnings.backends.pagasa_tropical.fetch_text', return_value=active_page):
+            system = get_tropical_systems_for_source('pagasa_tropical')[0]
+            products = get_tropical_products(system)
+
+        self.assertEqual([(product.kind, product.label) for product in products], [('advisory', 'Tropical Cyclone Bulletin')])
+        self.assertEqual(products[0].content_format, 'markdown')
+        self.assertIn('Tropical Cyclone Bulletin #1', products[0].content or '')
+        self.assertIn('THE LOW PRESSURE AREA WEST OF LA UNION', products[0].content or '')
+        self.assertNotIn('Weather navigation', products[0].content or '')
+        self.assertNotIn('Site footer', products[0].content or '')
 
 
 if __name__ == '__main__':

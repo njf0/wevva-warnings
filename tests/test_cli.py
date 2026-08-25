@@ -10,9 +10,9 @@ from rich.progress import Progress
 from typer.testing import CliRunner
 
 from wevva_warnings.cli import _DebugProgress, app
-from wevva_warnings.models import Alert, TropicalSystem
+from wevva_warnings.models import Alert, CanonicalTropicalSystem, TropicalProduct, TropicalSystem
 from wevva_warnings.registry import UnsupportedCountryError
-from wevva_warnings.sources import WarningSource
+from wevva_warnings.sources import DisplayGeography, WarningSource
 
 runner = CliRunner()
 
@@ -204,6 +204,52 @@ class CLITests(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         get_systems.assert_called_once_with('nhc_gis_atlantic', debug=True)
 
+    def test_tropical_products_command_fetches_selected_observation_lazily(self) -> None:
+        source = WarningSource(
+            id='nhc_gis_atlantic',
+            name='NHC',
+            backend='nhc_gis',
+            country_code=None,
+            url='https://www.nhc.noaa.gov/gis-at.xml',
+            kind='tropical_system',
+        )
+        system = TropicalSystem(
+            id='al012026',
+            source=source.id,
+            classification='Tropical Storm',
+            name='ALPHA',
+            headline='Tropical Storm ALPHA',
+            source_info=source,
+        )
+        products = [
+            TropicalProduct(
+                kind='analysis',
+                label='Forecast Discussion',
+                title='Tropical Storm Alpha Discussion Number 1',
+                content='Official discussion.',
+                data={'product_code': 'TCD'},
+            )
+        ]
+
+        with (
+            patch('wevva_warnings.cli.get_source', return_value=source),
+            patch('wevva_warnings.cli.get_tropical_systems_for_source', return_value=[system]) as get_systems,
+            patch('wevva_warnings.cli.get_tropical_products', return_value=products) as get_products,
+        ):
+            result = runner.invoke(
+                app,
+                ['tropical-products', source.id, 'AL012026', '--content'],
+            )
+
+        self.assertEqual(result.exit_code, 0)
+        get_systems.assert_called_once_with(source.id, debug=False)
+        get_products.assert_called_once_with(system, debug=False)
+        self.assertIn('ALPHA / NHC', result.stdout)
+        self.assertIn('Forecast Discussion', result.stdout)
+        self.assertIn('Kind: analysis', result.stdout)
+        self.assertIn('Official discussion.', result.stdout)
+        self.assertIn('product_code', result.stdout)
+
     def test_tropical_source_command_pretty_prints_system_by_default(self) -> None:
         system = TropicalSystem(
             id='al012026',
@@ -299,6 +345,75 @@ class CLITests(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 2)
         self.assertIn('not a tropical-system source', result.output)
+
+    def test_tropical_groups_command_shows_default_and_explicit_geography(self) -> None:
+        jma_source = WarningSource(
+            id='jma_tropical',
+            name='Japan Meteorological Agency',
+            backend='jma_tropical',
+            country_code=None,
+            url='https://example.test/jma',
+            kind='tropical_system',
+            issuer_country_code='JP',
+        )
+        cphc_source = WarningSource(
+            id='cphc_gis_central_pacific',
+            name='NOAA Central Pacific Hurricane Center',
+            backend='nhc_gis',
+            country_code=None,
+            url='https://example.test/cphc',
+            kind='tropical_system',
+            issuer_country_code='US',
+            display_geography=DisplayGeography(
+                kind='subunit',
+                code='US-HI',
+                name='Hawaii',
+            ),
+        )
+        jma = TropicalSystem(
+            id='jma-lala',
+            source=jma_source.id,
+            classification='Typhoon',
+            name='LALA',
+            headline='JMA LALA report',
+            source_info=jma_source,
+        )
+        cphc = TropicalSystem(
+            id='cphc-lala',
+            source=cphc_source.id,
+            classification='Hurricane',
+            name='lala',
+            headline='CPHC LALA report',
+            source_info=cphc_source,
+        )
+        groups = [CanonicalTropicalSystem(name='LALA', observations=[jma, cphc])]
+
+        with patch(
+            'wevva_warnings.cli.get_canonical_tropical_systems',
+            return_value=groups,
+        ) as get_groups:
+            result = runner.invoke(
+                app,
+                [
+                    'tropical-groups',
+                    '--source',
+                    'jma_tropical',
+                    '--source',
+                    'cphc_gis_central_pacific',
+                    '--debug',
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0)
+        get_groups.assert_called_once_with(
+            source_ids=['jma_tropical', 'cphc_gis_central_pacific'],
+            debug=True,
+        )
+        self.assertIn('LALA', result.stderr)
+        self.assertIn('Japan Meteorological Agency', result.stderr)
+        self.assertIn('default (JP)', result.stderr)
+        self.assertIn('NOAA Central Pacific Hurricane Center', result.stderr)
+        self.assertIn('Hawaii (subunit: US-HI)', result.stderr)
 
     def test_tropical_near_command_passes_flags(self) -> None:
         system = TropicalSystem(

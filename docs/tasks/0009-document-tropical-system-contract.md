@@ -119,6 +119,14 @@ and official impact polygons, and source-specific metadata retained by HKO,
 NHC, JMA, and Météo-France La Réunion. The exploratory note was folded into
 the maintained architecture documentation and removed.
 
+On 2026-08-25, the maintained contract was expanded for
+`CanonicalTropicalSystem`, `DisplayGeography`, `TropicalProduct`, the lazy
+product query, and the grouped/product CLI commands. The README now contains
+the single compact nine-source capability table and links the outstanding
+tropical work rather than duplicating speculative behavior in prose. Task 0012
+was refreshed so `wevva` consumes these public APIs instead of inventing its
+own grouping, geography, or provider-product rules.
+
 The remaining work depends on task 0004. Once tropical queries can return
 explicit match evidence, this task should add a short maintained consumer
 guide showing how `wevva` distinguishes a nearby centre from containment in a

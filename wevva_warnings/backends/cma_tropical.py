@@ -7,7 +7,7 @@ import json
 import math
 from typing import Any
 
-from ..models import Alert, TropicalSystem
+from ..models import Alert, Geometry, TropicalProduct, TropicalSystem
 from ..sources import WarningSource
 from .base import BackendError, WarningBackend, fetch_text
 
@@ -92,6 +92,40 @@ class CMATropicalBackend(WarningBackend):
 
         return sorted(systems.values(), key=lambda system: (system.name.casefold(), system.id))
 
+    def fetch_tropical_products(
+        self,
+        source: WarningSource,
+        system: TropicalSystem,
+        *,
+        debug: bool = False,
+    ) -> list[TropicalProduct]:
+        """Fetch CMA's structured forecast detail for one observation."""
+        del source
+        detail_url = system.data_urls.get('cma_tropical_cyclone_detail')
+        if not detail_url:
+            return []
+        try:
+            payload = fetch_text(
+                detail_url,
+                headers={'Accept': 'application/javascript, application/json, text/plain'},
+                debug=debug,
+            )
+        except BackendError:
+            return []
+        forecast = _cma_forecast_product_data(payload, system=system)
+        if forecast is None:
+            return []
+        return [
+            TropicalProduct(
+                kind='forecast',
+                label='Forecast',
+                title=f'{system.name} Forecast',
+                issued_at=system.issued_at,
+                url=detail_url,
+                data=forecast,
+            )
+        ]
+
 
 def _current_system_ids(payload: str) -> list[str]:
     """Return internal IDs for the NMC list entries marked ``start``."""
@@ -173,6 +207,14 @@ def _parse_cma_tropical_detail(
         if agencies:
             parameters['CMA Forecast Agencies'] = agencies
 
+    geometries: dict[str, Geometry] = {}
+    observed_track = _observed_track(tropical_cyclone[8])
+    if observed_track is not None:
+        geometries['observed_track'] = observed_track
+    forecast_track = _forecast_track(current)
+    if forecast_track is not None:
+        geometries['forecast_track'] = forecast_track
+
     return TropicalSystem(
         id=storm_number or detail_internal_id,
         source=source,
@@ -189,6 +231,7 @@ def _parse_cma_tropical_detail(
         max_wind=max_wind,
         summary=f'China Meteorological Administration current tropical-cyclone analysis for {name}.',
         data_urls={'cma_tropical_cyclone_detail': detail_url},
+        geometries=geometries,
         parameters=parameters,
     )
 
@@ -219,6 +262,130 @@ def _latest_observation(value: object) -> list[object] | None:
         if latest is None or (timestamp is not None and (latest[0] is None or timestamp > latest[0])):
             latest = (timestamp, observation)
     return latest[1] if latest else None
+
+
+def _observed_track(value: object) -> Geometry | None:
+    """Return the provider's ordered current-analysis position history."""
+    if not isinstance(value, list):
+        return None
+
+    coordinates: list[list[float]] = []
+    for observation in value:
+        if not isinstance(observation, list) or len(observation) < 6:
+            continue
+        point = _point(lon=_at(observation, 4), lat=_at(observation, 5))
+        if point is not None and (not coordinates or point != coordinates[-1]):
+            coordinates.append(point)
+    if len(coordinates) < 2:
+        return None
+    return {'type': 'LineString', 'coordinates': coordinates}
+
+
+def _forecast_track(current: list[object]) -> Geometry | None:
+    """Return the latest CMA/NMC (BABJ) forecast-centre line."""
+    agencies = _at(current, 11)
+    if not isinstance(agencies, dict):
+        return None
+
+    forecasts = next(
+        (
+            value
+            for key, value in agencies.items()
+            if isinstance(key, str) and key.casefold() == 'babj'
+        ),
+        None,
+    )
+    if not isinstance(forecasts, list):
+        return None
+
+    coordinates: list[list[float]] = []
+    current_point = _point(lon=_at(current, 4), lat=_at(current, 5))
+    if current_point is not None:
+        coordinates.append(current_point)
+    for forecast in forecasts:
+        if not isinstance(forecast, list) or len(forecast) < 4:
+            continue
+        point = _point(lon=_at(forecast, 2), lat=_at(forecast, 3))
+        if point is not None and (not coordinates or point != coordinates[-1]):
+            coordinates.append(point)
+    if len(coordinates) < 2:
+        return None
+    return {'type': 'LineString', 'coordinates': coordinates}
+
+
+def _cma_forecast_product_data(
+    payload: str,
+    *,
+    system: TropicalSystem,
+) -> dict[str, Any] | None:
+    """Return the current BABJ forecast as restrained provider-specific data."""
+    data = _decode_jsonp_object(payload)
+    tropical_cyclone = data.get('typhoon') if data else None
+    if not isinstance(tropical_cyclone, list) or len(tropical_cyclone) < 9:
+        return None
+    internal_id = _identifier(_at(tropical_cyclone, 0))
+    storm_number = _identifier(_at(tropical_cyclone, 3))
+    if system.id not in {internal_id, storm_number}:
+        return None
+    current = _latest_observation(_at(tropical_cyclone, 8))
+    if current is None:
+        return None
+    agencies = _at(current, 11)
+    if not isinstance(agencies, dict):
+        return None
+    forecasts = next(
+        (
+            value
+            for key, value in agencies.items()
+            if isinstance(key, str) and key.casefold() == 'babj'
+        ),
+        None,
+    )
+    if not isinstance(forecasts, list):
+        return None
+
+    points: list[dict[str, Any]] = []
+    for forecast in forecasts:
+        if not isinstance(forecast, list):
+            continue
+        longitude = _coordinate(_at(forecast, 2), lower=-180.0, upper=180.0)
+        latitude = _coordinate(_at(forecast, 3), lower=-90.0, upper=90.0)
+        if longitude is None or latitude is None:
+            continue
+        point: dict[str, Any] = {
+            'latitude': latitude,
+            'longitude': longitude,
+        }
+        lead_hours = _number(_at(forecast, 0))
+        base_at = _parse_cma_time(_at(forecast, 1))
+        pressure = _number(_at(forecast, 4))
+        wind = _number(_at(forecast, 5))
+        classification_code = _text(_at(forecast, 7))
+        if lead_hours is not None:
+            point['lead_hours'] = lead_hours
+        if base_at:
+            point['forecast_base_at'] = base_at.isoformat()
+            if lead_hours is not None:
+                point['valid_at'] = (base_at + timedelta(hours=lead_hours)).isoformat()
+        if pressure is not None:
+            point['minimum_pressure_hpa'] = pressure
+        if wind is not None:
+            point['maximum_wind_mps'] = wind
+        if classification_code:
+            point['classification'] = _classification(classification_code)
+            point['classification_code'] = classification_code
+        points.append(point)
+    if not points:
+        return None
+    return {'agency': 'BABJ', 'points': points}
+
+
+def _point(*, lon: object, lat: object) -> list[float] | None:
+    longitude = _coordinate(lon, lower=-180.0, upper=180.0)
+    latitude = _coordinate(lat, lower=-90.0, upper=90.0)
+    if longitude is None or latitude is None:
+        return None
+    return [longitude, latitude]
 
 
 def _parse_cma_time(value: object) -> datetime | None:
@@ -273,6 +440,19 @@ def _coordinate(value: object, *, lower: float, upper: float) -> float | None:
     if not math.isfinite(number) or not lower <= number <= upper:
         return None
     return number
+
+
+def _number(value: object) -> int | float | None:
+    """Return one finite provider number without converting it to prose."""
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return int(number) if number.is_integer() else number
 
 
 def _identifier(value: object) -> str | None:

@@ -169,6 +169,34 @@ class QueryTests(unittest.TestCase):
 
         self.assertEqual([source.id for source in sources], ['fmi_en'])
 
+    def test_nws_guam_query_uses_the_guam_point_without_rewriting_its_country_code(self) -> None:
+        payload = {
+            'features': [
+                {
+                    'id': 'https://api.weather.gov/alerts/guam-demo',
+                    'properties': {
+                        'id': 'guam-demo',
+                        'event': 'High Wind Warning',
+                        'headline': 'High Wind Warning for Guam',
+                    },
+                    'geometry': None,
+                }
+            ]
+        }
+
+        with patch('wevva_warnings.backends.nws.fetch_json', return_value=payload) as fetch_json:
+            alerts = get_alerts_for_point(13.36202177645581, 144.71017508384088, 'GU')
+
+        fetch_json.assert_called_once_with(
+            'https://api.weather.gov/alerts/active',
+            params={'point': '13.3620,144.7102'},
+            headers={'Accept': 'application/geo+json'},
+            debug=False,
+        )
+        self.assertEqual([alert.id for alert in alerts], ['guam-demo'])
+        self.assertEqual(alerts[0].source, 'nws')
+        self.assertEqual(alerts[0].source_info.id, 'nws')
+
     def test_get_sources_for_country_accepts_requested_language(self) -> None:
         sources = get_sources_for_country('FI', lang='fi-FI')
 

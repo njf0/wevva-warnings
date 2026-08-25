@@ -7,7 +7,7 @@ from xml.etree import ElementTree
 import unittest
 from unittest.mock import patch
 
-from wevva_warnings import get_tropical_systems_for_source
+from wevva_warnings import get_tropical_products, get_tropical_systems_for_source
 from wevva_warnings.backends.meteofrance_reunion_tropical import (
     MeteoFranceReunionTropicalBackend,
     _current_season,
@@ -58,14 +58,54 @@ HKO_TRACK = """\
       <Longitude>122.0E</Longitude>
     </AnalysisInformation>
     <ForecastInformation>
-      <Time>2026-08-11T18:00:00+00:00</Time>
-      <Latitude>17.0N</Latitude>
-      <Longitude>123.0E</Longitude>
+      <Latitude>16.2N</Latitude>
+      <Longitude>122.2E</Longitude>
     </ForecastInformation>
     <ForecastInformation>
-      <Time>2026-08-12T00:00:00+00:00</Time>
+      <Latitude>16.5N</Latitude>
+      <Longitude>122.6E</Longitude>
+    </ForecastInformation>
+    <ForecastInformation>
+      <Latitude>16.8N</Latitude>
+      <Longitude>122.9E</Longitude>
+    </ForecastInformation>
+    <ForecastInformation>
+      <Latitude>17.2N</Latitude>
+      <Longitude>123.3E</Longitude>
+    </ForecastInformation>
+    <ForecastInformation>
+      <Latitude>17.6N</Latitude>
+      <Longitude>123.7E</Longitude>
+    </ForecastInformation>
+    <ForecastInformation>
+      <Index>24</Index>
+      <Time>2026-08-12T12:00:00+00:00</Time>
       <Latitude>18.0N</Latitude>
       <Longitude>124.0E</Longitude>
+    </ForecastInformation>
+    <ForecastInformation>
+      <Index>48</Index>
+      <Time>2026-08-13T12:00:00+00:00</Time>
+      <Latitude>19.0N</Latitude>
+      <Longitude>126.0E</Longitude>
+    </ForecastInformation>
+    <ForecastInformation>
+      <Index>72</Index>
+      <Time>2026-08-14T12:00:00+00:00</Time>
+      <Latitude>20.0N</Latitude>
+      <Longitude>128.0E</Longitude>
+    </ForecastInformation>
+    <ForecastInformation>
+      <Index>96</Index>
+      <Time>2026-08-15T12:00:00+00:00</Time>
+      <Latitude>21.0N</Latitude>
+      <Longitude>130.0E</Longitude>
+    </ForecastInformation>
+    <ForecastInformation>
+      <Index>120</Index>
+      <Time>2026-08-16T12:00:00+00:00</Time>
+      <Latitude>22.0N</Latitude>
+      <Longitude>132.0E</Longitude>
     </ForecastInformation>
   </WeatherReport>
 </TropicalCycloneTrack>
@@ -141,7 +181,7 @@ REUNION_TRAJECTORY = {
 
 
 class HKOTropicalTests(unittest.TestCase):
-    def test_public_source_query_normalizes_hko_current_analysis_and_tracks(self) -> None:
+    def test_public_source_query_separates_timed_forecast_fixes_from_curve(self) -> None:
         source = get_source('hko_tropical')
         assert source is not None
 
@@ -176,11 +216,55 @@ class HKOTropicalTests(unittest.TestCase):
         )
         self.assertEqual(
             system.geometries['forecast_track']['coordinates'],
-            [[123.0, 17.0], [124.0, 18.0]],
+            [
+                [124.0, 18.0],
+                [126.0, 19.0],
+                [128.0, 20.0],
+                [130.0, 21.0],
+                [132.0, 22.0],
+            ],
         )
+        self.assertEqual(set(system.geometries), {'observed_track', 'forecast_track'})
         self.assertEqual(
             fetch_text.call_args.args[0],
             'https://www.weather.gov.hk/wxinfo/currwx/hko_tctrack_2601.xml',
+        )
+
+        with patch('wevva_warnings.backends.hko.fetch_text', return_value=HKO_TRACK):
+            products = get_tropical_products(system)
+
+        self.assertEqual([(product.kind, product.label) for product in products], [('forecast', 'Forecast')])
+        self.assertEqual(
+            products[0].data,
+            {
+                'points': [
+                    {
+                        'latitude': 18.0,
+                        'longitude': 124.0,
+                        'valid_at': '2026-08-12T12:00:00+00:00',
+                    },
+                    {
+                        'latitude': 19.0,
+                        'longitude': 126.0,
+                        'valid_at': '2026-08-13T12:00:00+00:00',
+                    },
+                    {
+                        'latitude': 20.0,
+                        'longitude': 128.0,
+                        'valid_at': '2026-08-14T12:00:00+00:00',
+                    },
+                    {
+                        'latitude': 21.0,
+                        'longitude': 130.0,
+                        'valid_at': '2026-08-15T12:00:00+00:00',
+                    },
+                    {
+                        'latitude': 22.0,
+                        'longitude': 132.0,
+                        'valid_at': '2026-08-16T12:00:00+00:00',
+                    },
+                ]
+            },
         )
 
 
@@ -216,6 +300,20 @@ class MeteoFranceReunionTropicalTests(unittest.TestCase):
             system.parameters['Météo-France Wind Contours'],
             ['[{"wind_speed_kt":34,"radius_nm":{"NE":80}}]'],
         )
+
+        with patch(
+            'wevva_warnings.backends.meteofrance_reunion_tropical._fetch_reunion_trajectory',
+            return_value=REUNION_TRAJECTORY,
+        ) as fetch_trajectory:
+            products = get_tropical_products(system)
+
+        fetch_trajectory.assert_called_once_with(system.id, debug=False)
+        self.assertEqual(
+            [(product.kind, product.label) for product in products],
+            [('analysis', 'Analysis'), ('forecast', 'Forecast')],
+        )
+        self.assertEqual(products[0].data['cyclone_data']['development'], 'severe_tropical_storm')
+        self.assertEqual(products[1].data['points'][0]['time'], '2026-12-14T18:00:00Z')
 
     def test_current_season_follows_southwest_indian_ocean_season_boundary(self) -> None:
         self.assertEqual(_current_season(datetime(2026, 1, 1, tzinfo=UTC)), '20252026')

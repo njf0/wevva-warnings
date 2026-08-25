@@ -4,14 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+import re
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
-    from .sources import WarningSource
+    from .sources import DisplayGeography, WarningSource
 
 Geometry = dict[str, Any]
 Geocodes = dict[str, list[str]]
 Parameters = dict[str, list[str]]
+_LEADING_BLANK_LINES_RE = re.compile(r'\A(?:[ \t]*(?:\r\n|\r|\n))+')
 
 
 def _extract_geometry_positions(geometry: Geometry | None) -> list[tuple[float, float]]:
@@ -153,15 +155,25 @@ def _summarize_geometries(geometries: dict[str, Geometry]) -> dict[str, dict[str
     return summary
 
 
-def _summarize_source_info(source_info: WarningSource | None) -> dict[str, str | None] | None:
+def _summarize_source_info(source_info: WarningSource | None) -> dict[str, object] | None:
     """Return compact source metadata for Rich output."""
     if source_info is None:
         return None
+    display_geography = getattr(source_info, 'display_geography', None)
     return {
         'id': getattr(source_info, 'id', None),
         'name': getattr(source_info, 'name', None),
         'country_code': getattr(source_info, 'country_code', None),
         'issuer_country_code': getattr(source_info, 'issuer_country_code', None),
+        'display_geography': (
+            {
+                'kind': display_geography.kind,
+                'code': display_geography.code,
+                'name': display_geography.name,
+            }
+            if display_geography is not None
+            else None
+        ),
         'lang': getattr(source_info, 'lang', None),
         'kind': getattr(source_info, 'kind', None),
     }
@@ -284,11 +296,19 @@ class TropicalSystem:
     parameters: Parameters = field(default_factory=dict)
     source_info: WarningSource | None = field(default=None, repr=False)
 
+    @property
+    def display_geography(self) -> DisplayGeography | None:
+        """Return basin, source, or issuer-country map context in precedence order."""
+        if self.source_info is None:
+            return None
+        return self.source_info.resolve_display_geography(self.basin)
+
     def __rich_repr__(self) -> object:
         """Yield compact Rich pretty-print fields."""
         yield 'id', self.id
         yield 'source', self.source
         yield 'source_info', _summarize_source_info(self.source_info), None
+        yield 'display_geography', self.display_geography, None
         yield 'classification', self.classification
         yield 'name', self.name
         yield 'headline', self.headline
@@ -305,3 +325,57 @@ class TropicalSystem:
         yield 'data_urls', self.data_urls, {}
         yield 'geometries', _summarize_geometries(self.geometries), {}
         yield 'parameters', self.parameters, {}
+
+
+@dataclass(slots=True)
+class TropicalProduct:
+    """Represent optional source-specific detail for one tropical system.
+
+    ``kind`` is a small semantic rendering category while ``label`` preserves
+    the issuing provider's terminology. Text content defaults to safely
+    normalized Markdown, while providers may retain ``plain`` for products
+    whose fixed layout renders poorly as Markdown. ``data`` is an optional,
+    deliberately provider-specific structured payload.
+    """
+
+    kind: str
+    label: str
+    title: str | None = None
+    issued_at: datetime | None = None
+    content: str | None = None
+    content_format: Literal['markdown', 'plain'] = 'markdown'
+    url: str | None = None
+    data: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        """Remove leading blank lines without changing first-line Markdown."""
+        if self.content is not None:
+            self.content = _LEADING_BLANK_LINES_RE.sub('', self.content)
+
+    def __rich_repr__(self) -> object:
+        """Yield compact Rich pretty-print fields."""
+        yield 'kind', self.kind
+        yield 'label', self.label
+        yield 'title', self.title, None
+        yield 'issued_at', self.issued_at.isoformat() if self.issued_at else None, None
+        yield 'content', self.content, None
+        yield 'content_format', self.content_format, None
+        yield 'url', self.url, None
+        yield 'data', self.data, None
+
+
+@dataclass(slots=True)
+class CanonicalTropicalSystem:
+    """Group source observations that share one explicit storm name.
+
+    The wrapper expresses identity only.  Meteorological facts remain on the
+    ordered, source-specific :class:`TropicalSystem` observations.
+    """
+
+    name: str
+    observations: list[TropicalSystem] = field(default_factory=list)
+
+    def __rich_repr__(self) -> object:
+        """Yield compact Rich pretty-print fields."""
+        yield 'name', self.name
+        yield 'observations', self.observations
