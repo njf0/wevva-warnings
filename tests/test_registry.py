@@ -115,5 +115,12 @@ class RegistryTests(unittest.TestCase):
                     ['nws'],
                 )
 
+    def test_saws_routes_south_africa_to_its_focused_backend(self) -> None:
+        sources = get_sources_for_country('ZA')
+
+        self.assertEqual([source.id for source in sources], ['saws'])
+        self.assertEqual(sources[0].backend, 'saws')
+        self.assertEqual(sources[0].lang, 'en')
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

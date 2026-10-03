@@ -14,6 +14,7 @@ from wevva_warnings.backends.bahrain import BahrainBackend
 from wevva_warnings.backends.base import BackendError
 from wevva_warnings.backends.bmkg import BMKGBackend
 from wevva_warnings.backends.bom_tropical import BoMTropicalBackend
+from wevva_warnings.backends._cap_feed import CAP_ACCEPT
 from wevva_warnings.backends.dirmet_cg import DirmetCGBackend
 from wevva_warnings.backends.dwd import DWDBackend
 from wevva_warnings.backends.ea_flood import EAFloodBackend
@@ -56,6 +57,7 @@ from wevva_warnings.backends.nimet import NiMetBackend
 from wevva_warnings.backends.nve import NVEBackend
 from wevva_warnings.backends.noaa_tsunami import NOAATsunamiBackend
 from wevva_warnings.backends.saint_lucia import SaintLuciaBackend
+from wevva_warnings.backends.saws import SAWSBackend
 from wevva_warnings.backends.smn import SMNBackend
 from wevva_warnings.backends.slmet import SLMETBackend
 from wevva_warnings.backends.smg import SMGBackend
@@ -1108,6 +1110,89 @@ SWIC_BOM_CAP_WITH_AMOC_GEOCODE = """\
         <valueName>AMOC-AreaCode</valueName>
         <value>NSW_ME001</value>
       </geocode>
+    </area>
+  </info>
+</alert>
+"""
+
+SAWS_FEED = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2" version="2.0">
+  <channel>
+    <pubDate>Fri, 02 Oct 2026 10:50:10 +0000</pubDate>
+    <item>
+      <link>https://severeweather.wmo.int/v2/cap-alerts/za-saws-en/2026/10/02/current.xml</link>
+      <cap:status>Actual</cap:status>
+      <cap:msgType>Update</cap:msgType>
+      <cap:expires>Sun, 04 Oct 2026 21:59:59 +0000</cap:expires>
+    </item>
+    <item>
+      <link>https://severeweather.wmo.int/v2/cap-alerts/za-saws-en/2026/10/02/current.xml</link>
+      <cap:status>Actual</cap:status>
+      <cap:msgType>Update</cap:msgType>
+      <cap:expires>Sun, 04 Oct 2026 21:59:59 +0000</cap:expires>
+    </item>
+    <item>
+      <link>https://severeweather.wmo.int/v2/cap-alerts/za-saws-en/2026/10/01/expired.xml</link>
+      <cap:status>Actual</cap:status>
+      <cap:expires>Thu, 01 Oct 2026 21:59:59 +0000</cap:expires>
+    </item>
+    <item>
+      <link>https://severeweather.wmo.int/v2/cap-alerts/za-saws-en/2026/10/02/test.xml</link>
+      <cap:status>Test</cap:status>
+      <cap:expires>Sun, 04 Oct 2026 21:59:59 +0000</cap:expires>
+    </item>
+    <item>
+      <link>https://example.invalid/not-saws.xml</link>
+      <cap:status>Actual</cap:status>
+      <cap:expires>Sun, 04 Oct 2026 21:59:59 +0000</cap:expires>
+    </item>
+  </channel>
+</rss>
+"""
+
+SAWS_CAP = """\
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>saws-demo</identifier>
+  <sender>cap@weathersa.co.za</sender>
+  <sent>2026-10-02T12:00:00+02:00</sent>
+  <status>Actual</status>
+  <msgType>Update</msgType>
+  <scope>Restricted</scope>
+  <info>
+    <language>en-EN</language>
+    <category>Met</category>
+    <event>Disruptive Rain</event>
+    <urgency>Future</urgency>
+    <severity>Minor</severity>
+    <certainty>Observed</certainty>
+    <onset>2026-10-03T07:00:00+02:00</onset>
+    <expires>2026-10-04T23:59:59+02:00</expires>
+    <headline>Disruptive rain over Willowmore</headline>
+    <area>
+      <areaDesc>Willowmore</areaDesc>
+      <polygon>-33.5,22.7 -33.0,22.7 -33.0,23.3 -33.5,23.3 -33.5,22.7</polygon>
+    </area>
+  </info>
+  <info>
+    <language>af-ZA</language>
+    <category>Met</category>
+    <event>Ontwrigtende reën</event>
+    <area><areaDesc>Willowmore</areaDesc></area>
+  </info>
+  <info>
+    <language>en-EN</language>
+    <category>Met</category>
+    <event>Disruptive Rain</event>
+    <urgency>Future</urgency>
+    <severity>Minor</severity>
+    <certainty>Observed</certainty>
+    <onset>2026-10-03T12:00:00+02:00</onset>
+    <expires>2026-10-04T23:59:59+02:00</expires>
+    <headline>Disruptive rain over Addo</headline>
+    <area>
+      <areaDesc>Addo</areaDesc>
+      <polygon>-33.8,25.7 -33.3,25.7 -33.3,26.4 -33.8,26.4 -33.8,25.7</polygon>
     </area>
   </info>
 </alert>
@@ -2295,6 +2380,69 @@ class ProviderBackendTests(unittest.TestCase):
         self.assertIn(latest_url, requested_urls)
         self.assertIn(other_url, requested_urls)
         self.assertNotIn(older_url, requested_urls)
+
+    def test_saws_backend_prefilters_history_and_preserves_timed_info_blocks(self) -> None:
+        backend = SAWSBackend()
+        source = get_source('saws')
+        assert source is not None
+        current_url = (
+            'https://severeweather.wmo.int/v2/cap-alerts/za-saws-en/'
+            '2026/10/02/current.xml'
+        )
+
+        with (
+            patch(
+                'wevva_warnings.backends._cap_feed.fetch_text',
+                return_value=SAWS_FEED,
+            ) as fetch_feed,
+            patch(
+                'wevva_warnings.backends.saws.fetch_text',
+                return_value=SAWS_CAP,
+            ) as fetch_cap,
+        ):
+            alerts = backend.fetch_alerts(source)
+
+        fetch_feed.assert_called_once()
+        fetch_cap.assert_called_once_with(
+            current_url,
+            headers={'Accept': CAP_ACCEPT},
+            debug=False,
+        )
+        self.assertEqual(
+            [alert.id for alert in alerts],
+            ['saws-demo#info-1', 'saws-demo#info-3'],
+        )
+        self.assertEqual([alert.area_names for alert in alerts], [['Willowmore'], ['Addo']])
+        self.assertEqual(
+            [alert.onset.isoformat() for alert in alerts],
+            ['2026-10-03T07:00:00+02:00', '2026-10-03T12:00:00+02:00'],
+        )
+        self.assertTrue(all(alert.geometry['type'] == 'Polygon' for alert in alerts))
+        self.assertEqual(alerts[0].parameters['CAP identifier'], ['saws-demo'])
+        self.assertEqual(alerts[0].parameters['CAP info block'], ['1'])
+        self.assertEqual(alerts[1].parameters['CAP info block'], ['3'])
+        self.assertEqual(
+            [alert.id for alert in match_alerts_to_point(alerts, lat=-33.25, lon=23.0)],
+            ['saws-demo#info-1'],
+        )
+        self.assertEqual(
+            [alert.id for alert in match_alerts_to_point(alerts, lat=-33.5, lon=26.0)],
+            ['saws-demo#info-3'],
+        )
+
+    def test_saws_backend_rejects_non_actual_cap_document(self) -> None:
+        backend = SAWSBackend()
+        source = get_source('saws')
+        assert source is not None
+        test_cap = SAWS_CAP.replace('<status>Actual</status>', '<status>Test</status>', 1)
+
+        with (
+            patch('wevva_warnings.backends._cap_feed.fetch_text', return_value=SAWS_FEED),
+            patch('wevva_warnings.backends.saws.fetch_text', return_value=test_cap),
+        ):
+            alerts = backend.fetch_alerts(source)
+
+        self.assertEqual(alerts, [])
 
     def test_swic_mirror_backfills_geometryless_cap_from_exact_wfs_capurl(self) -> None:
         backend = SWICMirrorBackend()

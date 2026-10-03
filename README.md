@@ -245,8 +245,8 @@ Useful flags:
 
 ## Source registry
 
-There are currently **171** registered sources in the built-in registry:
-**162** alert sources and **9** tropical-system sources. Tropical-system
+There are currently **172** registered sources in the built-in registry:
+**163** alert sources and **9** tropical-system sources. Tropical-system
 coverage includes the NHC/CPHC, JMA, CMA/NMC, HKO and PAGASA Northwest Pacific
 products; BoM's Australian-region track products; and Météo-France La
 Réunion's Southwest Indian Ocean RSMC data. Use the separate tropical queries
@@ -362,6 +362,11 @@ work rather than being treated as missing coverage:
 PAGASA and the Thai Meteorological Department are currently live. Their focused
 backends support PAGASA's `application/cap+xml` `.cap` documents and TMD's
 current `/uploads/CAP/` document paths, while retaining their legacy URL forms.
+
+South Africa is supported through official SAWS alerts mirrored by WMO SWIC.
+Its focused backend uses feed expiry metadata to avoid fetching the mirror's
+long history, and preserves separately timed English `info` blocks and their
+polygons as distinct alerts.
 
 
 ### Intentionally skipped language variants

@@ -74,6 +74,7 @@ from .nws import NWSBackend
 from .pagasa import PAGASABackend
 from .pagasa_tropical import PAGASATropicalBackend
 from .saint_lucia import SaintLuciaBackend
+from .saws import SAWSBackend
 from .slmet import SLMETBackend
 from .smg import SMGBackend
 from .smn_mexico import SMNMexicoBackend
@@ -165,6 +166,7 @@ __all__ = [
     'PAGASABackend',
     'PAGASATropicalBackend',
     'SaintLuciaBackend',
+    'SAWSBackend',
     'SLMETBackend',
     'SMGBackend',
     'SMNMexicoBackend',

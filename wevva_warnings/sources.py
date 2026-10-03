@@ -414,6 +414,15 @@ SOURCES: tuple[WarningSource, ...] = (
         notes='Official BoM public alert feed mirrored through the WMO Severe Weather Information Centre, with linked CAP XML alerts, packaged geocode geometry, and WMO map-geometry backfill only when needed.',
     ),
     WarningSource(
+        id='saws',
+        name='South African Weather Service',
+        backend='saws',
+        country_code='ZA',
+        url='https://severeweather.wmo.int/v2/cap-alerts/za-saws-en/rss.xml',
+        lang='en',
+        notes='Official SAWS weather alerts mirrored through the WMO Severe Weather Information Centre. The focused backend filters the mirror history before fetching current CAP documents and preserves separately timed English info blocks with polygon geometry.',
+    ),
+    WarningSource(
         id='belgidromet_en',
         name='Belgidromet',
         backend='belgidromet',

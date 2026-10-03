@@ -303,11 +303,19 @@ CAP-provided or packaged polygon, and records WFS provenance in
 alert has been returned, `match_alerts_to_point()` remains local and makes no
 network request.
 
+The focused `saws` backend also consumes a WMO SWIC mirror, but does not use
+the generic mirror enrichment path. The SAWS feed contains a long history, so
+the adapter compares each item's embedded expiry with the feed publication
+time and fetches only unique, non-expired HTTPS CAP documents. A SAWS document
+can contain several same-language `info` blocks with different times and
+polygons; each becomes a distinct alert with a stable block suffix, while the
+original CAP identifier is retained in `Alert.parameters`.
+
 ## Providers
 
 `sources.py` is the source-of-truth inventory: at the time this document was
-added it declares 171 enabled sources (162 alert, 9 tropical-system) across
-89 backend IDs. Use `wevva-warnings sources` or `list_sources()` for the
+updated it declares 172 enabled sources (163 alert, 9 tropical-system) across
+90 backend IDs. Use `wevva-warnings sources` or `list_sources()` for the
 current list; do not duplicate that volatile inventory here.
 
 The provider implementations fall into these concrete families:
