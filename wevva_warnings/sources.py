@@ -567,6 +567,15 @@ SOURCES: tuple[WarningSource, ...] = (
         notes='Official MeteoChile CAP RSS feed with direct CAP XML links and polygon geometry.',
     ),
     WarningSource(
+        id='ideam_colombia',
+        name='Instituto de Hidrología, Meteorología y Estudios Ambientales',
+        backend='ideam',
+        country_code='CO',
+        url='https://severeweather.wmo.int/v2/cap-alerts/co-ideam-es/rss.xml',
+        lang='es',
+        notes='Official IDEAM alerts mirrored through the WMO Severe Weather Information Centre, covering meteorological, hydrological, landslide, and forest-fire alerts. The focused backend filters the mirror history before fetching CAP documents with detailed polygon geometry; current payloads may use English CAP info blocks despite the feed being registered as Spanish.',
+    ),
+    WarningSource(
         id='meteocomores',
         name='Diréction de la Météorologie Nationale des Comores',
         backend='meteocomores',

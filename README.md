@@ -245,8 +245,8 @@ Useful flags:
 
 ## Source registry
 
-There are currently **172** registered sources in the built-in registry:
-**163** alert sources and **9** tropical-system sources. Tropical-system
+There are currently **173** registered sources in the built-in registry:
+**164** alert sources and **9** tropical-system sources. Tropical-system
 coverage includes the NHC/CPHC, JMA, CMA/NMC, HKO and PAGASA Northwest Pacific
 products; BoM's Australian-region track products; and Météo-France La
 Réunion's Southwest Indian Ocean RSMC data. Use the separate tropical queries
@@ -357,7 +357,7 @@ work rather than being treated as missing coverage:
 | `saudi_ncm_en`, `saudi_ncm_ar` | Saudi NCM | 2026-08-11 | Live, high-volume feeds; English endpoint was notably slow |
 | `svg_met` | Saint Vincent and the Grenadines Meteorological Services | 2026-08-11 | Primary CAPEWS endpoint timed out while checking |
 
-### Recently restored endpoints
+### Recently added or restored endpoints
 
 PAGASA and the Thai Meteorological Department are currently live. Their focused
 backends support PAGASA's `application/cap+xml` `.cap` documents and TMD's
@@ -367,6 +367,11 @@ South Africa is supported through official SAWS alerts mirrored by WMO SWIC.
 Its focused backend uses feed expiry metadata to avoid fetching the mirror's
 long history, and preserves separately timed English `info` blocks and their
 polygons as distinct alerts.
+
+Colombia's official IDEAM alerts are consumed through WMO SWIC's HTTPS mirror.
+The focused backend filters the mirror history before fetching linked CAP
+documents, which cover meteorological, hydrological, landslide, and forest-fire
+alerts and provide detailed polygons suitable for local point matching.
 
 
 ### Intentionally skipped language variants

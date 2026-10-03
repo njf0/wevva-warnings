@@ -24,6 +24,7 @@ from .gmet import GMETBackend
 from .hko import HKOBackend
 from .hydromet_guyana import HydroMetGuyanaBackend
 from .hydrometcenter import HydrometcenterBackend
+from .ideam import IDEAMBackend
 from .imd_india import IMDIndiaBackend
 from .inamhi import INAMHIBackend
 from .inam_mz import INAMMozambiqueBackend
@@ -116,6 +117,7 @@ __all__ = [
     'HKOBackend',
     'HydroMetGuyanaBackend',
     'HydrometcenterBackend',
+    'IDEAMBackend',
     'IMDIndiaBackend',
     'INAMHIBackend',
     'INAMMozambiqueBackend',
