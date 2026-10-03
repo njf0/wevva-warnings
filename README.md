@@ -245,8 +245,8 @@ Useful flags:
 
 ## Source registry
 
-There are currently **174** registered sources in the built-in registry:
-**165** alert sources and **9** tropical-system sources. Tropical-system
+There are currently **175** registered sources in the built-in registry:
+**166** alert sources and **9** tropical-system sources. Tropical-system
 coverage includes the NHC/CPHC, JMA, CMA/NMC, HKO and PAGASA Northwest Pacific
 products; BoM's Australian-region track products; and Météo-France La
 Réunion's Southwest Indian Ocean RSMC data. Use the separate tropical queries
@@ -376,6 +376,10 @@ alerts and provide detailed polygons suitable for local point matching.
 Syria is supported through the Ministry of Emergency and Disaster Management's
 official Arabic CAP feed. It publishes public all-hazard warnings with native
 polygons, including weather, flood, marine, and other emergency alerts.
+
+Uganda is supported through the Department of Meteorological Services' public
+WIDS Atom feed. The feed contains active alerts only; linked CAP documents
+provide English, Swahili, and Luganda text, native polygons, and geocodes.
 
 
 ### Intentionally skipped language variants

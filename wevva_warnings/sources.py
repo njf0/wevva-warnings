@@ -1170,6 +1170,15 @@ SOURCES: tuple[WarningSource, ...] = (
         notes='Official Tanzania Meteorological Authority CAP RSS feed distributed via the WMO Alert Hub mirror, with linked CAP XML and polygon geometry.',
     ),
     WarningSource(
+        id='uganda_dms',
+        name='Uganda Department of Meteorological Services',
+        backend='generic_cap',
+        country_code='UG',
+        url='https://wids.mwe.go.ug/api/v1/cap/feed',
+        lang='en,sw,lg',
+        notes='Official unauthenticated WIDS Atom feed of active Uganda CAP alerts. Linked CAP XML provides English, Swahili, and Luganda info blocks with native polygon geometry and ISO 3166-2 geocodes.',
+    ),
+    WarningSource(
         id='inumet',
         name='Instituto Uruguayo de Meteorología',
         backend='inumet',

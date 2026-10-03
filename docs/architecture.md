@@ -320,7 +320,7 @@ polygons are used directly for local point matching.
 ## Providers
 
 `sources.py` is the source-of-truth inventory: at the time this document was
-updated it declares 174 enabled sources (165 alert, 9 tropical-system) across
+updated it declares 175 enabled sources (166 alert, 9 tropical-system) across
 91 backend IDs. Use `wevva-warnings sources` or `list_sources()` for the
 current list; do not duplicate that volatile inventory here.
 
@@ -330,7 +330,7 @@ The provider implementations fall into these concrete families:
 | --- | --- | --- |
 | Native JSON point query | `nws` | Sends the point upstream and maps NWS GeoJSON features directly. The query layer trusts its native spatial filtering. |
 | Structured or product-specific feeds | `bom_tropical`, `cma_tropical`, `geomet`, `ea_flood`, `hko`, `hydromet_guyana`, `ideam`, `jma`, `jma_tropical`, `meteoalarm_atom`, `meteofrance_reunion_tropical`, `nhc_gis`, `pagasa_tropical`, `swic_mirror`, `swic_extreme` | Parse provider JSON/XML, RSS/Atom, HTML, or GIS products directly. These adapters hold the source-specific field, URL, geometry, revision, or product-selection rules. `cma_tropical` defensively unwraps the NMC Typhoon Network's browser-facing JSONP and uses only systems marked current. `pagasa_tropical` accepts only the live bulletin page, never its archive links. `swic_mirror` can add a matching WMO map polygon when CAP has none; `swic_extreme` groups global WFS features for the explicit discovery helper. `nhc_gis`, `jma_tropical`, `cma_tropical`, `pagasa_tropical`, `bom_tropical`, `hko`, and `meteofrance_reunion_tropical` produce `TropicalSystem`. |
-| Generic CAP | `generic_cap` (25 registered sources) | Accepts direct CAP, embedded CAP, RSS, or Atom and follows likely CAP links. Use only when the feed's link discovery works without provider rules. |
+| Generic CAP | `generic_cap` (26 registered sources) | Accepts direct CAP, embedded CAP, RSS, or Atom and follows likely CAP links. Use only when the feed's link discovery works without provider rules. |
 | Focused CAP feed adapters | the remaining alert backends | Fetch a provider feed, select the provider's CAP URLs, then use `_cap_feed.fetch_cap_documents()` and `cap.parse_cap_alert()`. Their small differences are intentional: link location/type, language, fixed or query-style URLs, archive/revision filtering, and area-name cleanup vary by provider. |
 
 The shared CAP helpers are the meaningful existing abstraction: `base.py`
