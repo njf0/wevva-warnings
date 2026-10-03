@@ -245,8 +245,8 @@ Useful flags:
 
 ## Source registry
 
-There are currently **173** registered sources in the built-in registry:
-**164** alert sources and **9** tropical-system sources. Tropical-system
+There are currently **174** registered sources in the built-in registry:
+**165** alert sources and **9** tropical-system sources. Tropical-system
 coverage includes the NHC/CPHC, JMA, CMA/NMC, HKO and PAGASA Northwest Pacific
 products; BoM's Australian-region track products; and Météo-France La
 Réunion's Southwest Indian Ocean RSMC data. Use the separate tropical queries
@@ -372,6 +372,10 @@ Colombia's official IDEAM alerts are consumed through WMO SWIC's HTTPS mirror.
 The focused backend filters the mirror history before fetching linked CAP
 documents, which cover meteorological, hydrological, landslide, and forest-fire
 alerts and provide detailed polygons suitable for local point matching.
+
+Syria is supported through the Ministry of Emergency and Disaster Management's
+official Arabic CAP feed. It publishes public all-hazard warnings with native
+polygons, including weather, flood, marine, and other emergency alerts.
 
 
 ### Intentionally skipped language variants

@@ -1044,6 +1044,15 @@ SOURCES: tuple[WarningSource, ...] = (
         notes='Official Sudan Meteorological Authority CAP RSS feed with linked CAP XML and polygon geometry.',
     ),
     WarningSource(
+        id='med_syria',
+        name='Ministry of Emergency and Disaster Management',
+        backend='generic_cap',
+        country_code='SY',
+        url='https://climweb.med.gov.sy/api/cap/rss.xml',
+        lang='ar',
+        notes='Official Syrian Ministry of Emergency and Disaster Management Arabic CAP RSS feed, with linked all-hazard CAP XML and native polygon geometry.',
+    ),
+    WarningSource(
         id='meteotogo',
         name='METEO TOGO (ANAMET)',
         backend='meteotogo',
