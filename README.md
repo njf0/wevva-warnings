@@ -394,6 +394,10 @@ Sudan also has an English hydrological source from the General Administration
 of Nile Waters Affairs. Its public CAP feed supplies explicit expiry times and
 separate native polygons for affected Blue Nile and White Nile reaches.
 
+Mali is supported through MALI-METEO's public French CAP RSS feed. Its current
+storm and rainfall alerts provide explicit expiry times and native polygons for
+local point matching.
+
 
 ### Intentionally skipped language variants
 

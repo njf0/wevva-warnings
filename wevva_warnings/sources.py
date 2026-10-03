@@ -900,6 +900,15 @@ SOURCES: tuple[WarningSource, ...] = (
         notes='Official Malawi CAP RSS feed with linked CAP XML and polygon geometry.',
     ),
     WarningSource(
+        id='mali_meteo',
+        name='Agence Nationale de la Météorologie du Mali',
+        backend='generic_cap',
+        country_code='ML',
+        url='https://www.malimeteo.ml/api/cap/rss.xml',
+        lang='fr',
+        notes='Official MALI-METEO French CAP RSS feed with linked public alerts, explicit expiry times, and native polygon geometry.',
+    ),
+    WarningSource(
         id='mms',
         name='Maldives Meteorological Service',
         backend='mms',
