@@ -390,6 +390,10 @@ French CAP RSS feed. Its linked documents provide explicit expiry times and
 native polygons; the endpoint was healthy but its newest alert was from June
 2024 when checked in October 2026.
 
+Sudan also has an English hydrological source from the General Administration
+of Nile Waters Affairs. Its public CAP feed supplies explicit expiry times and
+separate native polygons for affected Blue Nile and White Nile reaches.
+
 
 ### Intentionally skipped language variants
 

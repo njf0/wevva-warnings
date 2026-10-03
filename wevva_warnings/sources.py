@@ -1062,6 +1062,15 @@ SOURCES: tuple[WarningSource, ...] = (
         notes='Official Sudan Meteorological Authority CAP RSS feed with linked CAP XML and polygon geometry.',
     ),
     WarningSource(
+        id='hydrosudan',
+        name='General Administration of Nile Waters Affairs',
+        backend='generic_cap',
+        country_code='SD',
+        url='https://hydrosudan.sd/api/cap/rss.xml',
+        lang='en',
+        notes='Official English CAP RSS feed from Sudan\'s Nile Waters authority, with linked public hydrological alerts, explicit expiry times, and native polygons for affected river reaches.',
+    ),
+    WarningSource(
         id='med_syria',
         name='Ministry of Emergency and Disaster Management',
         backend='generic_cap',
