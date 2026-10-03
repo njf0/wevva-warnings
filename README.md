@@ -381,6 +381,15 @@ Uganda is supported through the Department of Meteorological Services' public
 WIDS Atom feed. The feed contains active alerts only; linked CAP documents
 provide English, Swahili, and Luganda text, native polygons, and geocodes.
 
+Somalia is supported through the Somalia National Meteorological Agency's
+public CAP RSS feed. Its linked English CAP documents provide explicit expiry
+times and native polygons suitable for local point matching.
+
+Niger is supported through the Direction de la Météorologie Nationale's public
+French CAP RSS feed. Its linked documents provide explicit expiry times and
+native polygons; the endpoint was healthy but its newest alert was from June
+2024 when checked in October 2026.
+
 
 ### Intentionally skipped language variants
 

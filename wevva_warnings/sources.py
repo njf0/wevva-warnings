@@ -936,6 +936,15 @@ SOURCES: tuple[WarningSource, ...] = (
         notes='Official Mozambique CAP RSS feed distributed via the WMO Alert Hub mirror, with linked CAP XML and polygon geometry.',
     ),
     WarningSource(
+        id='niger_meteo',
+        name='Direction de la Météorologie Nationale du Niger',
+        backend='generic_cap',
+        country_code='NE',
+        url='https://www.niger-meteo.ne/api/cap/rss.xml',
+        lang='fr',
+        notes='Official Niger meteorological service French CAP RSS feed with linked CAP XML, explicit expiry times, and native polygon geometry. The feed was reachable but its newest alert was from June 2024 when checked in October 2026.',
+    ),
+    WarningSource(
         id='nimet_en',
         name='Nigerian Meteorological Agency',
         backend='nimet',
@@ -1006,6 +1015,15 @@ SOURCES: tuple[WarningSource, ...] = (
         url='https://slmet.gov.sl/api/cap/rss.xml',
         lang='en',
         notes='Official Sierra Leone Meteorological Agency CAP RSS feed with linked CAP XML and polygon geometry.',
+    ),
+    WarningSource(
+        id='meteo_somalia',
+        name='Somalia National Meteorological Agency',
+        backend='generic_cap',
+        country_code='SO',
+        url='https://meteosomalia.so/api/cap/rss.xml',
+        lang='en',
+        notes='Official Somalia National Meteorological Agency English CAP RSS feed with linked CAP XML, explicit expiry times, and native polygon geometry.',
     ),
     WarningSource(
         id='solomon_met',
