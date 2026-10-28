@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:nhc="https://www.nhc.noaa.gov">
+  <channel>
+    <item>
+      <title>Summary - Tropical Storm KILO</title>
+      <link>https://www.nhc.noaa.gov/text/HFOTCPCP2.shtml</link>
+      <guid isPermaLink="false">summary-current-202608031500</guid>
+      <description>Kilo remains over the Central Pacific.</description>
+      <nhc:Cyclone>
+        <nhc:center>17.0, -158.0</nhc:center>
+        <nhc:type>Tropical Storm</nhc:type>
+        <nhc:name>KILO</nhc:name>
+        <nhc:wallet>CP022026</nhc:wallet>
+        <nhc:atcf>cp022026</nhc:atcf>
+        <nhc:datetime>2026-08-03T15:00:00+00:00</nhc:datetime>
+        <nhc:headline>...KILO MOVING WEST...</nhc:headline>
+      </nhc:Cyclone>
+    </item>
+  </channel>
+</rss>

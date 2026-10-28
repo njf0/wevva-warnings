@@ -5,6 +5,7 @@ from __future__ import annotations
 import codecs
 import json
 import logging
+import math
 from datetime import UTC, datetime
 from http.cookiejar import CookieJar
 from typing import Any
@@ -373,6 +374,15 @@ def _reunion_feature_data(feature: dict[str, Any]) -> dict[str, Any] | None:
         'latitude': latitude,
         'longitude': longitude,
     }
+    lead_hours = properties.get('hour')
+    if (
+        properties.get('data_type') == 'forecast'
+        and isinstance(lead_hours, (int, float))
+        and not isinstance(lead_hours, bool)
+        and math.isfinite(lead_hours)
+        and lead_hours > 0
+    ):
+        data['lead_hours'] = lead_hours
     for key in ('time', 'data_type', 'position_accuracy', 'cyclone_data'):
         value = properties.get(key)
         if value is not None:

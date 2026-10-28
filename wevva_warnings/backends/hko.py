@@ -338,9 +338,14 @@ def _hko_forecast_product_data(
             'latitude': latitude,
             'longitude': longitude,
         }
+        index = _descendant_text(node, 'Index')
         valid_at = _descendant_text(node, 'Time')
         intensity = _descendant_text(node, 'Intensity')
         wind = _descendant_text(node, 'MaximumWind')
+        if index:
+            lead_hours = int(index)
+            if lead_hours > 0:
+                point['lead_hours'] = lead_hours
         if valid_at:
             point['valid_at'] = valid_at
         if intensity:

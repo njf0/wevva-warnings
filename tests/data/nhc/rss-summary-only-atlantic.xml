@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:nhc="https://www.nhc.noaa.gov">
+  <channel>
+    <item>
+      <title>Summary - Hurricane BRAVO (AL052026/al052026)</title>
+      <link>https://www.nhc.noaa.gov/text/MIATCPAT5.shtml</link>
+      <guid isPermaLink="false">summary-al052026-202608021500</guid>
+      <description>Bravo remains over the Atlantic.</description>
+      <nhc:Cyclone>
+        <nhc:center>26.0, -71.0</nhc:center>
+        <nhc:type>Hurricane</nhc:type>
+        <nhc:name>BRAVO</nhc:name>
+        <nhc:wallet>AL052026</nhc:wallet>
+        <nhc:atcf>al052026</nhc:atcf>
+        <nhc:datetime>2026-08-02T15:00:00+00:00</nhc:datetime>
+        <nhc:headline>...BRAVO MOVING NORTHWEST...</nhc:headline>
+      </nhc:Cyclone>
+    </item>
+  </channel>
+</rss>

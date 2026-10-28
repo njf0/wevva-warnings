@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <Placemark>
+      <description><![CDATA[<table><tr><td>72 Hour Forecast Track</td></tr></table>]]></description>
+      <LineString>
+        <coordinates>-70.0,25.0,0 -70.5,25.5,0 -71.0,26.0,0 -72.0,27.0,0 -73.0,28.0,0</coordinates>
+      </LineString>
+    </Placemark>
+    <Placemark>
+      <description><![CDATA[<table><tr><td>120 Hour Forecast Track</td></tr></table>]]></description>
+      <LineString>
+        <coordinates>-70.0,25.0,0 -70.75,25.75,0 -71.0,26.0,0 -72.0,27.0,0 -73.0,28.0,0</coordinates>
+      </LineString>
+    </Placemark>
+    <Placemark>
+      <description><![CDATA[
+        <table>
+          <tr><td>Advisory Information</td></tr>
+          <tr><td>Valid at: 3:00 PM UTC August 2, 2026</td></tr>
+        </table>
+      ]]></description>
+      <Point><coordinates>-70.0,25.0,0</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <description><![CDATA[
+        <TABLE><TR><TD>  12 <B>HR</B>   FORECAST  </TD></TR></TABLE>
+      ]]></description>
+      <Point><coordinates>-71.0,26.0,0</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <description><![CDATA[
+        <table><tr><td>Valid at: 3:00 PM UTC August 5, 2026</td></tr></table>
+      ]]></description>
+      <Point><coordinates>-71.5,26.5,0</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <description><![CDATA[<table><tr><td>24 hour forecast</td></tr></table>]]></description>
+      <Point><coordinates>-72.0,27.0,0</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <description><![CDATA[<table><tr><td>36 hr Forecast</td></tr></table>]]></description>
+      <Point><coordinates>-73.0,28.0,0</coordinates></Point>
+    </Placemark>
+  </Document>
+</kml>

@@ -1,0 +1,50 @@
+<cap:alert xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+  <cap:identifier>IN-1792063527554028_57</cap:identifier>
+  <cap:sender>IMD-Jaipur</cap:sender>
+  <cap:sent>2026-10-15T16:55:03+05:30</cap:sent>
+  <cap:status>Actual</cap:status>
+  <cap:msgType>Alert</cap:msgType>
+  <cap:scope>Public</cap:scope>
+  <cap:info>
+    <cap:language>HI</cap:language>
+    <cap:category>Met</cap:category>
+    <cap:event>मध्यम गरज के साथ वर्षा</cap:event>
+    <cap:urgency>Expected</cap:urgency>
+    <cap:severity>Moderate</cap:severity>
+    <cap:certainty>Possible</cap:certainty>
+    <cap:effective>2026-10-15T16:54:00+05:30</cap:effective>
+    <cap:onset>2026-10-15T16:58:10+05:30</cap:onset>
+    <cap:expires>2026-10-15T19:54:00+05:30</cap:expires>
+    <cap:headline>अजमेर में मध्यम गरज के साथ वर्षा की संभावना है।</cap:headline>
+    <cap:description>कुछ स्थानों पर हल्की से मध्यम वर्षा और तेज हवा चलने की संभावना है।</cap:description>
+    <cap:instruction>सुरक्षित भवन में रहें।</cap:instruction>
+    <cap:area>
+      <cap:areaDesc>Ajmer district of Rajasthan</cap:areaDesc>
+      <cap:geocode><cap:valueName>LGD District Code</cap:valueName><cap:value>86</cap:value></cap:geocode>
+      <cap:polygon>26.30,74.50 26.30,75.00 26.70,75.00 26.70,74.50 26.30,74.50</cap:polygon>
+    </cap:area>
+  </cap:info>
+  <cap:info>
+    <cap:language>en-IN</cap:language>
+    <cap:category>Met</cap:category>
+    <cap:event>Moderate Thunderstorms with surface wind</cap:event>
+    <cap:urgency>Expected</cap:urgency>
+    <cap:severity>Moderate</cap:severity>
+    <cap:certainty>Possible</cap:certainty>
+    <cap:effective>2026-10-15T16:54:00+05:30</cap:effective>
+    <cap:onset>2026-10-15T16:58:10+05:30</cap:onset>
+    <cap:expires>2026-10-15T19:54:00+05:30</cap:expires>
+    <cap:headline>Moderate thunderstorms with surface wind are likely over Ajmer.</cap:headline>
+    <cap:description>Light to moderate rain with gusty surface wind is likely at isolated places.</cap:description>
+    <cap:instruction>Take safe shelter and avoid trees.</cap:instruction>
+    <cap:parameter>
+      <cap:valueName>Polygon URL</cap:valueName>
+      <cap:value>https://sachet.ndma.gov.in/cap_public_website/FetchPolygonXMLFile?identifier=1792063527554028</cap:value>
+    </cap:parameter>
+    <cap:area>
+      <cap:areaDesc>Ajmer district of Rajasthan</cap:areaDesc>
+      <cap:geocode><cap:valueName>LGD District Code</cap:valueName><cap:value>86</cap:value></cap:geocode>
+      <cap:polygon>26.30,74.50 26.30,75.00 26.70,75.00 26.70,74.50 26.30,74.50</cap:polygon>
+    </cap:area>
+  </cap:info>
+</cap:alert>

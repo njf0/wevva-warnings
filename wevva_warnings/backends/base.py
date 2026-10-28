@@ -7,12 +7,15 @@ import logging
 import shutil
 import subprocess
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from datetime import datetime
+from http.cookiejar import CookieJar
 from importlib.metadata import PackageNotFoundError, version
+from threading import RLock
 from typing import TYPE_CHECKING, Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
 from ..models import Alert
 
@@ -30,6 +33,74 @@ DEFAULT_USER_AGENT = f'wevva-warnings/{PACKAGE_VERSION}'
 
 class BackendError(RuntimeError):
     """Raised when a backend request or decode step fails."""
+
+
+class ETagCachingSession:
+    """Small cookie-aware in-process text cache for ETag endpoints.
+
+    The session stores a bounded set of response bodies with their ETags,
+    sends ``If-None-Match`` on later requests, and returns the cached body for
+    ``304 Not Modified``.  Cookies are retained because some official feeds
+    expose linked resources only within the anonymous session established by
+    the document request.
+    """
+
+    def __init__(self, *, max_entries: int = 2048) -> None:
+        """Create an empty bounded cache and cookie-aware opener."""
+        if max_entries < 1:
+            raise ValueError('max_entries must be positive')
+        self._max_entries = max_entries
+        self._cache: OrderedDict[str, tuple[str, str]] = OrderedDict()
+        self._opener = build_opener(HTTPCookieProcessor(CookieJar()))
+        self._lock = RLock()
+
+    def clear(self) -> None:
+        """Clear cached response bodies and ETags."""
+        with self._lock:
+            self._cache.clear()
+
+    def fetch_text(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout: float = DEFAULT_TIMEOUT,
+        debug: bool = False,
+    ) -> str:
+        """Fetch text while honouring an endpoint's ETag contract."""
+        with self._lock:
+            cached = self._cache.get(url)
+            request_headers = {'User-Agent': DEFAULT_USER_AGENT, **(headers or {})}
+            if cached is not None:
+                request_headers['If-None-Match'] = cached[0]
+
+            request = Request(url, headers=request_headers)
+            try:
+                with self._opener.open(request, timeout=timeout) as response:
+                    payload = response.read()
+                    encoding = response.headers.get_content_charset() or 'utf-8'
+                    etag = response.headers.get('ETag')
+            except HTTPError as exc:
+                if exc.code == 304 and cached is not None:
+                    self._cache.move_to_end(url)
+                    return cached[1]
+                if debug:
+                    logging.error('Fetch failed for %r: %s', url, exc)  # noqa: TRY400
+                raise BackendError(str(exc)) from exc
+            except (URLError, OSError, TimeoutError) as exc:
+                if debug:
+                    logging.error('Fetch failed for %r: %s', url, exc)  # noqa: TRY400
+                raise BackendError(str(exc)) from exc
+
+            text = payload.decode(encoding, errors='replace')
+            if etag:
+                self._cache[url] = (etag, text)
+                self._cache.move_to_end(url)
+                while len(self._cache) > self._max_entries:
+                    self._cache.popitem(last=False)
+            else:
+                self._cache.pop(url, None)
+            return text
 
 
 class WarningBackend(ABC):

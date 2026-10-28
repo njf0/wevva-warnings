@@ -1,0 +1,25 @@
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>IN-1792067024541019_51</identifier>
+  <sender>IMD-Bengaluru</sender>
+  <sent>2026-10-15T17:53:17+05:30</sent>
+  <status>Actual</status>
+  <msgType>Alert</msgType>
+  <scope>Public</scope>
+  <info>
+    <language>en-IN</language>
+    <category>Met</category>
+    <event>Thunderstorm with Lightning</event>
+    <urgency>Expected</urgency>
+    <severity>Moderate</severity>
+    <certainty>Possible</certainty>
+    <onset>2026-10-15T17:53:17+05:30</onset>
+    <expires>2026-10-15T20:52:00+05:30</expires>
+    <headline>Thunderstorm with Lightning is likely over Udupi and Uttara Kannada.</headline>
+    <description>Thunderstorms may produce lightning and brief moderate rain.</description>
+    <instruction>Please follow SDMA guidelines.</instruction>
+    <area>
+      <areaDesc>Udupi,Uttara Kannada districts of Karnataka</areaDesc>
+      <polygon>13.00,74.50 13.00,75.20 14.90,75.20 14.90,74.50 13.00,74.50</polygon>
+    </area>
+  </info>
+</alert>

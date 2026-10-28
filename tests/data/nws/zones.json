@@ -1,0 +1,89 @@
+{
+  "https://api.weather.gov/zones/forecast/NYZ001": {
+    "type": "Feature",
+    "properties": {
+      "id": "NYZ001",
+      "type": "forecast"
+    },
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [-75.0, 40.0],
+          [-74.0, 40.0],
+          [-74.0, 41.0],
+          [-75.0, 41.0],
+          [-75.0, 40.0]
+        ]
+      ]
+    }
+  },
+  "https://api.weather.gov/zones/county/NYC001": {
+    "type": "Feature",
+    "properties": {
+      "id": "NYC001",
+      "type": "county"
+    },
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [-77.0, 38.0],
+          [-76.0, 38.0],
+          [-76.0, 39.0],
+          [-77.0, 39.0],
+          [-77.0, 38.0]
+        ]
+      ]
+    }
+  },
+  "https://api.weather.gov/zones/fire/NYZ201": {
+    "type": "Feature",
+    "properties": {
+      "id": "NYZ201",
+      "type": "fire"
+    },
+    "geometry": {
+      "type": "MultiPolygon",
+      "coordinates": [
+        [
+          [
+            [-80.0, 42.0],
+            [-79.0, 42.0],
+            [-79.0, 43.0],
+            [-80.0, 43.0],
+            [-80.0, 42.0]
+          ]
+        ],
+        [
+          [
+            [-82.0, 42.0],
+            [-81.0, 42.0],
+            [-81.0, 43.0],
+            [-82.0, 43.0],
+            [-82.0, 42.0]
+          ]
+        ]
+      ]
+    }
+  },
+  "https://api.weather.gov/zones/marine/ANZ001": {
+    "type": "Feature",
+    "properties": {
+      "id": "ANZ001",
+      "type": "marine"
+    },
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [-72.0, 39.0],
+          [-71.0, 39.0],
+          [-71.0, 40.0],
+          [-72.0, 40.0],
+          [-72.0, 39.0]
+        ]
+      ]
+    }
+  }
+}

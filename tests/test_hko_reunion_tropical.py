@@ -164,7 +164,8 @@ REUNION_TRAJECTORY = {
                 'type': 'Feature',
                 'properties': {
                     'data_type': 'forecast',
-                    'time': '2026-12-14T18:00:00Z',
+                    'hour': 12,
+                    'time': '2026-12-15T00:00:00Z',
                     'cyclone_data': {
                         'development': 'tropical_cyclone',
                         'maximum_wind': {
@@ -241,26 +242,31 @@ class HKOTropicalTests(unittest.TestCase):
                     {
                         'latitude': 18.0,
                         'longitude': 124.0,
+                        'lead_hours': 24,
                         'valid_at': '2026-08-12T12:00:00+00:00',
                     },
                     {
                         'latitude': 19.0,
                         'longitude': 126.0,
+                        'lead_hours': 48,
                         'valid_at': '2026-08-13T12:00:00+00:00',
                     },
                     {
                         'latitude': 20.0,
                         'longitude': 128.0,
+                        'lead_hours': 72,
                         'valid_at': '2026-08-14T12:00:00+00:00',
                     },
                     {
                         'latitude': 21.0,
                         'longitude': 130.0,
+                        'lead_hours': 96,
                         'valid_at': '2026-08-15T12:00:00+00:00',
                     },
                     {
                         'latitude': 22.0,
                         'longitude': 132.0,
+                        'lead_hours': 120,
                         'valid_at': '2026-08-16T12:00:00+00:00',
                     },
                 ]
@@ -294,7 +300,7 @@ class MeteoFranceReunionTropicalTests(unittest.TestCase):
         self.assertEqual(system.parameters['Météo-France Position Accuracy'], ['30 km'])
         self.assertEqual(
             system.parameters['Météo-France Forecast Peak'],
-            ['Tropical Cyclone, 75 kt (gust 90 kt) at 2026-12-14T18:00:00Z'],
+            ['Tropical Cyclone, 75 kt (gust 90 kt) at 2026-12-15T00:00:00Z'],
         )
         self.assertEqual(
             system.parameters['Météo-France Wind Contours'],
@@ -313,7 +319,8 @@ class MeteoFranceReunionTropicalTests(unittest.TestCase):
             [('analysis', 'Analysis'), ('forecast', 'Forecast')],
         )
         self.assertEqual(products[0].data['cyclone_data']['development'], 'severe_tropical_storm')
-        self.assertEqual(products[1].data['points'][0]['time'], '2026-12-14T18:00:00Z')
+        self.assertEqual(products[1].data['points'][0]['time'], '2026-12-15T00:00:00Z')
+        self.assertEqual(products[1].data['points'][0]['lead_hours'], 12)
 
     def test_current_season_follows_southwest_indian_ocean_season_boundary(self) -> None:
         self.assertEqual(_current_season(datetime(2026, 1, 1, tzinfo=UTC)), '20252026')

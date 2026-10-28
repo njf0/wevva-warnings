@@ -19,11 +19,25 @@ from .base import BackendError, WarningBackend, fetch_bytes, fetch_text
 
 _ATCF_FROM_GUID_RE = re.compile(r'(?:summary|atcf|gis-[a-z0-9-]+)-([a-z]{2}\d{6})-', re.IGNORECASE)
 _ATCF_FROM_TITLE_RE = re.compile(r'\(([A-Z0-9]+)/(?:([a-z]{2}\d{6}))\)', re.IGNORECASE)
+_ATCF_ID_RE = re.compile(r'^(?P<basin>[A-Z]{2})(?:0[1-9]|[1-9]\d)\d{4}$')
 _ADVISORY_NUMBER_RE = re.compile(r'Advisory\s+#([0-9A-Z]+)', re.IGNORECASE)
 _GEOMETRY_ASSET_KEYS = ('forecast_track', 'cone', 'watch_warning')
+_CURRENT_ASSET_SUFFIXES = {
+    'forecast_track': 'TRACK',
+    'cone': 'CONE',
+    'watch_warning': 'WW',
+}
+_ATCF_PREFIXES_BY_SOURCE = {
+    'nhc_gis_atlantic': 'AL',
+    'nhc_gis_eastern_pacific': 'EP',
+    'cphc_gis_central_pacific': 'CP',
+}
+_CURRENT_ASSET_ROOT = 'https://www.nhc.noaa.gov/storm_graphics/api'
 _WALLET_RE = re.compile(r'^(?:AT|EP|CP)[1-5]$', re.IGNORECASE)
 _BR_RE = re.compile(r'<br\s*/?>', re.IGNORECASE)
 _PRE_TAG_RE = re.compile(r'</?pre(?:\s[^>]*)?>', re.IGNORECASE)
+_HTML_TAG_RE = re.compile(r'<[^>]+>')
+_FORECAST_HOUR_RE = re.compile(r'\b(\d{1,3})\s*(?:hr|hour)\s+forecast\b', re.IGNORECASE)
 _WMO_HEADER_RE = re.compile(r'^[A-Z]{4}\d{2}\s+[A-Z]{4}\s+\d{6}(?:\s+[A-Z]{3})?$')
 _MARKDOWN_ESCAPE_RE = re.compile(r'([\\`*_{}\[\]<>])')
 _NHC_PRODUCT_SPECS = (
@@ -76,15 +90,19 @@ class NHCGISBackend(WarningBackend):
             title = child_text(item, 'title') or ''
             guid = child_text(item, 'guid') or ''
             link = absolute_url(source.url, child_text(item, 'link'))
-            atcf = _extract_atcf_id(title, guid)
+            summary = _summary_node(item)
+            summary_fields = _summary_fields(summary) if summary is not None else {}
+            summary_atcf = _valid_atcf_id(source.id, summary_fields.get('atcf'))
+            atcf = summary_atcf or _valid_atcf_id(source.id, _extract_atcf_id(title, guid))
             if not atcf:
                 continue
 
             bucket = grouped.setdefault(atcf, {'data_urls': {}})
 
-            summary = _summary_node(item)
             if summary is not None:
-                bucket.update(_summary_fields(summary))
+                bucket.update(summary_fields)
+                if summary_atcf is not None:
+                    bucket['_current_asset_atcf'] = summary_atcf
                 bucket['url'] = link or bucket.get('url')
                 item_description = child_text(item, 'description')
                 if item_description:
@@ -98,6 +116,7 @@ class NHCGISBackend(WarningBackend):
             if advisory_number and not bucket.get('advisory_number'):
                 bucket['advisory_number'] = advisory_number
 
+        _populate_current_asset_urls(grouped, source)
         _populate_geometry_assets(grouped, debug=debug)
         _populate_advisory_information(grouped, debug=debug)
 
@@ -141,32 +160,36 @@ class NHCGISBackend(WarningBackend):
         *,
         debug: bool = False,
     ) -> list[TropicalProduct]:
-        """Fetch current NHC/CPHC wallet text products for one observation."""
+        """Fetch current NHC/CPHC text products and explicit GIS forecast fixes."""
         del source
         wallet = _wallet_for_system(system)
-        if wallet is None:
-            return []
-
         products: list[TropicalProduct] = []
-        for product_code, kind, label in _NHC_PRODUCT_SPECS:
-            feed_url = f'https://www.nhc.noaa.gov/xml/{product_code}{wallet}.xml'
-            try:
-                payload = fetch_text(
-                    feed_url,
-                    headers={'Accept': 'application/rss+xml, application/xml, text/xml'},
-                    debug=debug,
+        if wallet is not None:
+            for product_code, kind, label in _NHC_PRODUCT_SPECS:
+                feed_url = f'https://www.nhc.noaa.gov/xml/{product_code}{wallet}.xml'
+                try:
+                    payload = fetch_text(
+                        feed_url,
+                        headers={'Accept': 'application/rss+xml, application/xml, text/xml'},
+                        debug=debug,
+                    )
+                except BackendError:
+                    continue
+                product = _parse_nhc_product_feed(
+                    payload,
+                    system=system,
+                    product_code=product_code,
+                    kind=kind,
+                    label=label,
                 )
-            except BackendError:
-                continue
-            product = _parse_nhc_product_feed(
-                payload,
-                system=system,
-                product_code=product_code,
-                kind=kind,
-                label=label,
-            )
-            if product is not None:
-                products.append(product)
+                if product is not None:
+                    products.append(product)
+
+        track_url = system.data_urls.get('forecast_track')
+        if isinstance(track_url, str) and track_url:
+            forecast = _fetch_forecast_product(track_url, debug=debug)
+            if forecast is not None:
+                products.append(forecast)
         return products
 
 
@@ -229,6 +252,45 @@ def _extract_advisory_number(title: str) -> str | None:
     if match:
         return match.group(1)
     return None
+
+
+def _valid_atcf_id(source_id: str, value: Any) -> str | None:
+    """Return a normalized ATCF ID only when it belongs to this feed basin."""
+    if not isinstance(value, str):
+        return None
+    atcf = value.strip().upper()
+    match = _ATCF_ID_RE.fullmatch(atcf)
+    expected_prefix = _ATCF_PREFIXES_BY_SOURCE.get(source_id)
+    if match is None or expected_prefix is None or match.group('basin') != expected_prefix:
+        return None
+    return atcf.lower()
+
+
+def _current_asset_urls(source_id: str, atcf: str) -> dict[str, str]:
+    """Build documented NHC/CPHC current GIS asset candidates for one storm."""
+    normalized = _valid_atcf_id(source_id, atcf)
+    if normalized is None:
+        return {}
+    identifier = normalized.upper()
+    return {
+        key: f'{_CURRENT_ASSET_ROOT}/{identifier}_{suffix}_latest.kmz'
+        for key, suffix in _CURRENT_ASSET_SUFFIXES.items()
+    }
+
+
+def _populate_current_asset_urls(
+    grouped: dict[str, dict[str, Any]],
+    source: WarningSource,
+) -> None:
+    """Backfill only missing asset links for validated summary observations."""
+    for atcf, bucket in grouped.items():
+        if bucket.get('_current_asset_atcf') != atcf:
+            continue
+        data_urls = bucket.get('data_urls')
+        if not isinstance(data_urls, dict):
+            continue
+        for key, url in _current_asset_urls(source.id, atcf).items():
+            data_urls.setdefault(key, url)
 
 
 def _asset_key(title: str) -> str | None:
@@ -395,6 +457,27 @@ def _nhc_product_markdown(content: str, *, product_code: str) -> str | None:
 
     output = [f'# {_escape_markdown_line(lines[0].strip())}']
     index = 1
+    if product_code == 'TCP':
+        status_start = next(
+            (
+                candidate
+                for candidate in range(1, len(lines))
+                if lines[candidate].strip().startswith('...')
+            ),
+            None,
+        )
+        if status_start is not None:
+            status_lines: list[str] = []
+            for status_end in range(status_start, len(lines)):
+                stripped = lines[status_end].strip()
+                if not stripped:
+                    break
+                status_lines.append(stripped)
+                if stripped.endswith('...'):
+                    status = _escape_markdown_line(' '.join(status_lines))
+                    output = [f'# {status}']
+                    index = status_end + 1
+                    break
     while index < len(lines):
         line = lines[index]
         stripped = line.strip()
@@ -475,7 +558,7 @@ def _populate_geometry_assets(grouped: dict[str, dict[str, Any]], *, debug: bool
             url = (bucket.get('data_urls') or {}).get(key)
             if not isinstance(url, str) or not url:
                 continue
-            geometry = _fetch_asset_geometry(url, debug=debug)
+            geometry = _fetch_asset_geometry(url, prefer_points=key == 'forecast_track', debug=debug)
             if geometry is not None:
                 geometries[key] = geometry
         if geometries:
@@ -561,40 +644,112 @@ def _useful_text(value: str | None) -> str | None:
     return value.strip()
 
 
-def _fetch_asset_geometry(url: str, *, debug: bool) -> Geometry | None:
+def _fetch_asset_geometry(
+    url: str,
+    *,
+    prefer_points: bool = False,
+    debug: bool,
+) -> Geometry | None:
     try:
         payload = fetch_bytes(url, debug=debug)
     except BackendError:
         return None
-    return _parse_kmz_geometry(payload)
+    geometry, _ = _parse_kmz_asset(payload, prefer_points=prefer_points)
+    return geometry
 
 
-def _parse_kmz_geometry(payload: bytes) -> Geometry | None:
+def _fetch_forecast_product(url: str, *, debug: bool) -> TropicalProduct | None:
+    """Return explicit NHC forecast fixes without deriving missing lead hours."""
+    try:
+        payload = fetch_bytes(url, debug=debug)
+    except BackendError:
+        return None
+    _, points = _parse_kmz_asset(payload, prefer_points=True)
+    if not points:
+        return None
+    return TropicalProduct(
+        kind='forecast',
+        label='Forecast',
+        url=url,
+        data={'points': points},
+    )
+
+
+def _parse_kmz_geometry(payload: bytes, *, prefer_points: bool = False) -> Geometry | None:
+    """Parse a KMZ geometry, preferring discrete fixes for forecast tracks."""
+    geometry, _ = _parse_kmz_asset(payload, prefer_points=prefer_points)
+    return geometry
+
+
+def _parse_kmz_asset(
+    payload: bytes,
+    *,
+    prefer_points: bool,
+) -> tuple[Geometry | None, list[dict[str, float | int]]]:
     kml_payload = payload
     try:
         if zipfile.is_zipfile(io.BytesIO(payload)):
             with zipfile.ZipFile(io.BytesIO(payload)) as archive:
                 kml_name = next((name for name in archive.namelist() if name.lower().endswith('.kml')), None)
                 if not kml_name:
-                    return None
+                    return None, []
                 kml_payload = archive.read(kml_name)
     except (OSError, KeyError, zipfile.BadZipFile):
-        return None
+        return None, []
 
     try:
         root = ElementTree.fromstring(kml_payload)
     except ElementTree.ParseError:
-        return None
+        return None, []
 
     geometries: list[Geometry] = []
+    point_geometries: list[Geometry] = []
+    forecast_points: list[dict[str, float | int]] = []
     for placemark in root.iter():
         if local_name(placemark.tag) != 'Placemark':
             continue
         geometry = _placemark_geometry(placemark)
         if geometry is not None:
             geometries.append(geometry)
+            if geometry.get('type') == 'Point':
+                point_geometries.append(geometry)
+                lead_hours = _explicit_forecast_hours(placemark)
+                if lead_hours is not None:
+                    coordinates = geometry.get('coordinates') or []
+                    forecast_points.append(
+                        {
+                            'latitude': float(coordinates[1]),
+                            'longitude': float(coordinates[0]),
+                            'lead_hours': lead_hours,
+                        }
+                    )
 
-    return _combine_geometries(geometries)
+    if prefer_points and point_geometries:
+        coordinates = [geometry['coordinates'] for geometry in point_geometries]
+        if len(coordinates) == 1:
+            return _with_bbox({'type': 'Point', 'coordinates': coordinates[0]}), forecast_points
+        return _with_bbox({'type': 'LineString', 'coordinates': coordinates}), forecast_points
+    return _combine_geometries(geometries), forecast_points
+
+
+def _explicit_forecast_hours(placemark: ElementTree.Element) -> int | None:
+    """Read an explicit forecast-hour label from an NHC Point description."""
+    description = _direct_child_text(placemark, 'description')
+    if not description:
+        return None
+    plain = _HTML_TAG_RE.sub(' ', unescape(description))
+    match = _FORECAST_HOUR_RE.search(' '.join(plain.split()))
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def _direct_child_text(element: ElementTree.Element, local_tag: str) -> str | None:
+    for child in element:
+        if local_name(child.tag) == local_tag:
+            text = ''.join(child.itertext()).strip()
+            return text or None
+    return None
 
 
 def _placemark_geometry(placemark: ElementTree.Element) -> Geometry | None:

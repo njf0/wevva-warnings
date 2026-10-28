@@ -412,9 +412,12 @@ def _jma_forecast_product_data(payload: str) -> dict[str, object] | None:
             'latitude': latitude,
             'longitude': longitude,
         }
+        lead_hours = _jma_forecast_lead_hours(forecast_type)
         valid_at = _child_text(information, 'DateTime')
         pressure = _metric(item, property_type='中心', value_name='Pressure')
         wind = _metric(item, property_type='風', value_name='WindSpeed')
+        if lead_hours is not None:
+            product_point['lead_hours'] = lead_hours
         if valid_at:
             product_point['valid_at'] = valid_at
         if pressure:
@@ -425,6 +428,16 @@ def _jma_forecast_product_data(payload: str) -> dict[str, object] | None:
     if not points:
         return None
     return {'points': points}
+
+
+def _jma_forecast_lead_hours(forecast_type: str) -> int | None:
+    """Return the explicit hour horizon from a JMA forecast-type label."""
+    normalized = forecast_type.translate(str.maketrans('０１２３４５６７８９', '0123456789'))
+    match = re.fullmatch(r'予報\s*(\d+)\s*時間後', normalized)
+    if match is None:
+        return None
+    lead_hours = int(match.group(1))
+    return lead_hours if lead_hours > 0 else None
 
 
 def _degree_position(

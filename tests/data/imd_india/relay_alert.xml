@@ -1,0 +1,32 @@
+<cap:alert xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+  <cap:identifier>IN-1792067024541019_19</cap:identifier>
+  <cap:sender>Karnataka-SNDMC</cap:sender>
+  <cap:sent>2026-10-15T17:55:36+05:30</cap:sent>
+  <cap:status>Actual</cap:status>
+  <cap:msgType>Update</cap:msgType>
+  <cap:scope>Public</cap:scope>
+  <cap:references>IMD-Bengaluru,IN-1792067024541019_51,2026-10-15T17:53:17+05:30</cap:references>
+  <cap:info>
+    <cap:language>en-IN</cap:language>
+    <cap:category>Met</cap:category>
+    <cap:event>Thunderstorm with Lightning</cap:event>
+    <cap:urgency>Expected</cap:urgency>
+    <cap:severity>Moderate</cap:severity>
+    <cap:certainty>Possible</cap:certainty>
+    <cap:effective>2026-10-15T17:52:00+05:30</cap:effective>
+    <cap:onset>2026-10-15T17:55:36+05:30</cap:onset>
+    <cap:expires>2026-10-15T20:52:00+05:30</cap:expires>
+    <cap:headline>Thunderstorm with Lightning is likely over Udupi and Uttara Kannada.</cap:headline>
+    <cap:description>Thunderstorms may produce lightning and brief moderate rain.</cap:description>
+    <cap:instruction>Please follow SDMA guidelines.</cap:instruction>
+    <cap:parameter>
+      <cap:valueName>Polygon URL</cap:valueName>
+      <cap:value>https://sachet.ndma.gov.in/cap_public_website/FetchPolygonXMLFile?identifier=1792067024541019</cap:value>
+    </cap:parameter>
+    <cap:area>
+      <cap:areaDesc>Udupi,Uttara Kannada districts of Karnataka</cap:areaDesc>
+      <cap:geocode><cap:valueName>LGD District Code</cap:valueName><cap:value>549</cap:value></cap:geocode>
+      <cap:geocode><cap:valueName>LGD District Code</cap:valueName><cap:value>550</cap:value></cap:geocode>
+    </cap:area>
+  </cap:info>
+</cap:alert>

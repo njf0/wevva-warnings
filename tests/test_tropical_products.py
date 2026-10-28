@@ -298,14 +298,54 @@ There are no coastal watches or warnings in effect.
 
         self.assertIsNotNone(markdown)
         assert markdown is not None
-        self.assertTrue(markdown.startswith('# Tropical Storm Alpha Advisory Number 1\n'))
-        self.assertIn('> ...ALPHA CONTINUES NORTHWEST...', markdown)
+        self.assertTrue(
+            markdown.startswith(
+                '# ...ALPHA CONTINUES NORTHWEST...\n\n'
+                '## SUMMARY OF 1100 AM AST...1500 UTC...INFORMATION\n'
+            )
+        )
+        self.assertNotIn('Tropical Storm Alpha Advisory Number 1', markdown)
+        self.assertNotIn('NWS National Hurricane Center Miami FL AL012026', markdown)
+        self.assertNotIn('> ...ALPHA CONTINUES NORTHWEST...', markdown)
         self.assertIn('## SUMMARY OF 1100 AM AST...1500 UTC...INFORMATION', markdown)
         self.assertIn('    LOCATION...25.0N 70.0W', markdown)
         self.assertIn('    MAXIMUM SUSTAINED WINDS...50 MPH', markdown)
         self.assertIn('## WATCHES AND WARNINGS', markdown)
         self.assertIn('There are no coastal watches or warnings in effect.', markdown)
         self.assertNotIn('--------------------', markdown)
+
+    def test_public_advisory_markdown_joins_wrapped_ellipsis_headline(self) -> None:
+        content = """\
+BULLETIN
+Tropical Storm Vance Advisory Number 18
+NWS National Hurricane Center Miami FL EP222026
+300 AM CST Sun Oct 25 2026
+
+...TROPICAL STORM VANCE CHURNING OFF THE COAST OF SOUTHWESTERN
+MEXICO...
+
+SUMMARY OF 300 AM CST...0900 UTC...INFORMATION
+------------------------------------------------
+LOCATION...12.4N 102.8W
+MAXIMUM SUSTAINED WINDS...60 MPH
+"""
+
+        markdown = _nhc_product_markdown(content, product_code='TCP')
+
+        self.assertIsNotNone(markdown)
+        assert markdown is not None
+        self.assertTrue(
+            markdown.startswith(
+                '# ...TROPICAL STORM VANCE CHURNING OFF THE COAST OF '
+                'SOUTHWESTERN MEXICO...\n\n'
+                '## SUMMARY OF 300 AM CST...0900 UTC...INFORMATION\n'
+            )
+        )
+        self.assertNotIn('Tropical Storm Vance Advisory Number 18', markdown)
+        self.assertNotIn('EP222026', markdown)
+        self.assertNotIn('> ...TROPICAL STORM VANCE CHURNING', markdown)
+        self.assertIn('    LOCATION...12.4N 102.8W', markdown)
+        self.assertIn('    MAXIMUM SUSTAINED WINDS...60 MPH', markdown)
 
     def test_forecast_discussion_markdown_preserves_prose_and_forecast_table(self) -> None:
         content = """\
@@ -329,6 +369,7 @@ Forecaster Example
         self.assertIsNotNone(markdown)
         assert markdown is not None
         self.assertTrue(markdown.startswith('# Tropical Storm Alpha Discussion Number 1\n'))
+        self.assertIn('NWS National Hurricane Center Miami FL AL012026', markdown)
         self.assertIn('Alpha is moving northwest and remains over open water.', markdown)
         self.assertIn('## FORECAST POSITIONS AND MAX WINDS', markdown)
         self.assertIn('    INIT  14/1500Z 25.0N 70.0W   45 KT  50 MPH', markdown)

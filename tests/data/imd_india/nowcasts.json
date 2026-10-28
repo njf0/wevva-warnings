@@ -1,0 +1,75 @@
+{
+  "type": "FeatureCollection",
+  "totalFeatures": 3,
+  "numberMatched": 3,
+  "numberReturned": 3,
+  "features": [
+    {
+      "type": "Feature",
+      "id": "NowcastWarningDistrict.test.30",
+      "geometry": {
+        "type": "MultiPolygon",
+        "coordinates": [[[[77.0, 8.0], [78.0, 8.0], [78.0, 9.0], [77.0, 9.0], [77.0, 8.0]]]]
+      },
+      "properties": {
+        "Obj_id": 30,
+        "Date": "2026-10-15",
+        "State_District": "KANYAKUMARI",
+        "cat4": 4,
+        "cat7": 7,
+        "cat16": "",
+        "message": "Thunderstorms and moderate rain are likely in Kanyakumari district.",
+        "impact": "Temporary disruption to outdoor activity is possible.",
+        "action": "Move indoors and avoid exposed places.",
+        "toi": "1900",
+        "vupto": "2200",
+        "Color": 3,
+        "update_time": "2026-10-15T19:11:24Z",
+        "MC_RMC": "rmc_chennai",
+        "District": "KANYAKUMARI",
+        "State": "TAMILNADU",
+        "Data": ""
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "NowcastWarningDistrict.test.31",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[76.5, 8.2], [77.0, 8.2], [77.0, 8.8], [76.5, 8.8], [76.5, 8.2]]]
+      },
+      "properties": {
+        "Obj_id": "31",
+        "Date": "2026-10-15",
+        "cat9": 9,
+        "cat16": "Localized waterlogging",
+        "message": "",
+        "impact": "",
+        "action": "",
+        "toi": "2300",
+        "vupto": "0100",
+        "Color": "2",
+        "District": "THIRUVANANTHAPURAM",
+        "State": "KERALA"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "NowcastWarningDistrict.test.green",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[75.0, 10.0], [76.0, 10.0], [76.0, 11.0], [75.0, 11.0], [75.0, 10.0]]]
+      },
+      "properties": {
+        "Obj_id": 99,
+        "Date": "2026-10-15",
+        "cat1": 1,
+        "toi": "1900",
+        "vupto": "2200",
+        "Color": 1,
+        "District": "NO WARNING",
+        "State": "KERALA"
+      }
+    }
+  ]
+}

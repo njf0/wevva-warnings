@@ -1,0 +1,120 @@
+{
+  "features": [
+    {
+      "id": "https://api.weather.gov/alerts/explicit",
+      "properties": {
+        "id": "explicit",
+        "event": "Flood Warning",
+        "headline": "Explicit polygon warning",
+        "areaDesc": "Explicit Polygon County",
+        "geocode": {
+          "SAME": ["036001"],
+          "UGC": ["NYZ001"]
+        },
+        "parameters": {
+          "VTEC": ["/O.NEW.KOKX.FL.W.0001.260101T0000Z-260101T0600Z/"]
+        },
+        "affectedZones": [
+          "https://api.weather.gov/zones/forecast/NYZ001"
+        ]
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-73.9, 40.6],
+            [-73.7, 40.6],
+            [-73.7, 40.8],
+            [-73.9, 40.8],
+            [-73.9, 40.6]
+          ]
+        ]
+      }
+    },
+    {
+      "id": "https://api.weather.gov/alerts/single",
+      "properties": {
+        "id": "single",
+        "event": "Winter Storm Warning",
+        "headline": "Single zone warning",
+        "geocode": {
+          "UGC": ["NYZ001"]
+        },
+        "affectedZones": [
+          "https://api.weather.gov/zones/forecast/NYZ001"
+        ]
+      },
+      "geometry": null
+    },
+    {
+      "id": "https://api.weather.gov/alerts/multiple",
+      "properties": {
+        "id": "multiple",
+        "event": "Red Flag Warning",
+        "headline": "Multiple zone warning",
+        "geocode": {
+          "UGC": ["NYC001", "NYZ201"]
+        },
+        "affectedZones": [
+          "https://api.weather.gov/zones/county/NYC001",
+          "https://api.weather.gov/zones/fire/NYZ201"
+        ]
+      },
+      "geometry": null
+    },
+    {
+      "id": "https://api.weather.gov/alerts/shared-one",
+      "properties": {
+        "id": "shared-one",
+        "event": "Gale Warning",
+        "headline": "First shared marine zone warning",
+        "affectedZones": [
+          "https://api.weather.gov/zones/marine/ANZ001"
+        ]
+      },
+      "geometry": null
+    },
+    {
+      "id": "https://api.weather.gov/alerts/shared-two",
+      "properties": {
+        "id": "shared-two",
+        "event": "Small Craft Advisory",
+        "headline": "Second shared marine zone warning",
+        "affectedZones": [
+          "https://api.weather.gov/zones/marine/ANZ001"
+        ]
+      },
+      "geometry": null
+    },
+    {
+      "id": "https://api.weather.gov/alerts/partial",
+      "properties": {
+        "id": "partial",
+        "event": "Wind Advisory",
+        "headline": "Partially resolved zone warning",
+        "affectedZones": [
+          "https://api.weather.gov/zones/forecast/NYZ001",
+          "https://api.weather.gov/zones/forecast/NYZ999"
+        ]
+      },
+      "geometry": null
+    },
+    {
+      "id": "https://api.weather.gov/alerts/geometryless",
+      "properties": {
+        "id": "geometryless",
+        "event": "Special Weather Statement",
+        "headline": "Geometryless warning",
+        "areaDesc": "A prose-only area that must not become geometry",
+        "geocode": {
+          "UGC": ["NYZ404"]
+        },
+        "affectedZones": [
+          "https://api.weather.gov/zones/public/NYZ404",
+          "https://example.com/zones/forecast/NYZ404"
+        ]
+      },
+      "geometry": null
+    }
+  ]
+}

@@ -85,7 +85,7 @@ SOURCES: tuple[WarningSource, ...] = (
         country_code='US',
         url='https://api.weather.gov/alerts/active',
         lang='en',
-        notes='Official NWS alerts API with native point queries. Also covers the US territories American Samoa (AS), Guam (GU), Northern Mariana Islands (MP), Puerto Rico (PR), and US Virgin Islands (VI).',
+        notes='Official NWS alerts API with native point queries and affected-zone boundary fallback for geometryless alerts. Also covers the US territories American Samoa (AS), Guam (GU), Northern Mariana Islands (MP), Puerto Rico (PR), and US Virgin Islands (VI).',
         additional_country_codes=('AS', 'GU', 'MP', 'PR', 'VI'),
     ),
     WarningSource(
@@ -726,7 +726,7 @@ SOURCES: tuple[WarningSource, ...] = (
         country_code='IN',
         url='https://cap-sources.s3.amazonaws.com/in-imd-en/rss.xml',
         lang='en',
-        notes='Official India Meteorological Department CAP RSS feed distributed via the WMO Alert Hub mirror, with linked CAP XML and polygon geometry.',
+        notes='Official IMD warnings from the WMO Alert Hub CAP mirror, verified IMD-origin CAP relayed by NDMA SACHET, and warning-coloured district nowcasts from IMD’s public WFS. Non-IMD SACHET hazards are excluded.',
     ),
     WarningSource(
         id='irimo_en',

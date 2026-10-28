@@ -42,7 +42,7 @@ country code + optional language
         -> sources.py registry -> registry.py backend
         -> provider adapter -> Alert / TropicalSystem
         -> source_info attached
-        -> explicit geometry, or packaged geocode geometry
+        -> explicit geometry, provider boundary fallback, or packaged geocode geometry
         -> point match, active filter, deduplication -> caller / CLI
 ```
 
@@ -146,6 +146,11 @@ does not join superseded advisories after a forecast has ended. HKO uses only
 `ForecastInformation` blocks carrying both a time and numeric forecast-hour
 index for `forecast_track` and structured forecast products; its untimed smooth
 curve vertices are not exposed as forecast fixes.
+Structured forecast points expose `lead_hours` only from provider-owned horizon
+fields: CMA's BABJ lead value, JMA's forecast-type hour, HKO's numeric `Index`,
+Météo-France La Réunion's forecast `hour`, and NHC/CPHC's point placemark
+description. Provider valid times, point order, and advisory cadence are not
+used to manufacture a lead.
 
 `TropicalProduct` is a separate lazy detail layer. Its `kind` is a small
 semantic rendering category, while `label` retains provider terminology.
@@ -158,18 +163,31 @@ discovery and other successfully fetched products.
 Leading blank lines are removed at the product-model boundary without stripping
 indentation from the first meaningful line, preserving headings and code blocks.
 
-NHC and CPHC use the selected observation's temporary wallet to locate Public
-Advisory, Forecast Discussion, Wind Probabilities, Warnings, and Update RSS
-documents in that deterministic order. Wallet routing is not identity: each
-document must contain the observation's ATCF identifier, which excludes stale
-wallet products and placeholders. Known RSS line breaks, HTML entities, and a
-fully recognized WMO/AWIPS transport envelope are normalized conservatively;
-Public Advisory and Forecast Discussion products use Markdown only when their
-known layouts are recognized: document and section headings become Markdown
-headings, ellipsis headlines become block quotes, and fixed-width summary or
-forecast-position rows become indented code blocks. Meteorological prose is
-otherwise unchanged. Wind Probabilities and Tropical Cyclone Updates remain
-faithful plain text, while Warnings use Markdown fixed-width code blocks.
+NHC and CPHC prefer explicit GIS asset links from their RSS groups. When a
+summary's structured ATCF identifier is valid for the selected feed basin,
+missing track, cone, and watch/warning links use NHC's current-asset aliases;
+each optional request remains isolated. Forecast-track geometry prefers the
+official Point placemarks over presentation LineStrings, with line-only KML
+remaining supported. Only explicit Point labels such as `12 hr Forecast`
+produce `lead_hours` in the lazy structured Forecast product.
+
+NHC and CPHC also use the selected observation's temporary wallet to locate
+Public Advisory, Forecast Discussion, Wind Probabilities, Warnings, and Update
+RSS documents in that deterministic order. Wallet routing is not identity:
+each document must contain the observation's ATCF identifier, which excludes
+stale wallet products and placeholders. Known RSS line breaks, HTML entities,
+and a fully recognized WMO/AWIPS transport envelope are normalized
+conservatively; Public Advisory and Forecast Discussion products use Markdown
+only when their known layouts are recognized. Public Advisories use the
+provider's ellipsis headline as their compact document heading and omit the
+preceding advisory/office/wallet preamble. Provider line wrapping inside that
+headline is joined before rendering. Other document and section headings become
+Markdown headings, and fixed-width summary or forecast-position rows become
+indented code blocks. Forecast Discussion ellipsis headlines remain block
+quotes. Provider-authored Forecast Discussion metadata remains intact.
+Meteorological prose is otherwise unchanged. Wind Probabilities and Tropical
+Cyclone Updates remain faithful plain text, while Warnings use Markdown
+fixed-width code blocks.
 Unrecognized advisory/discussion layouts and PAGASA bulletin text are
 mechanically escaped into line-preserving Markdown without rewriting their
 prose. The useful top-level GIS feed description remains on
@@ -294,6 +312,16 @@ artifacts only: Meteoalarm EMMA IDs and aliases, Australian BoM
 `AMOC-AreaCode`, and JMA area codes. It does not make runtime requests for
 boundaries. The build scripts in `scripts/` produce those artifacts.
 
+The native-point NWS backend has a separate fetch-time fallback for alerts
+whose own GeoJSON geometry is absent. It preserves the raw grouped NWS
+`geocode` values and stores the official `affectedZones` references in
+`Alert.parameters`. Supported forecast, county, fire, and marine zone URLs on
+`api.weather.gov` are fetched as GeoJSON and their polygon parts are combined
+without deriving geometry from `areaDesc` or other prose. Explicit alert
+geometry always wins. Zone URLs are deduplicated across a response; successful
+boundaries use a bounded process cache, while failed requests are isolated and
+may be retried on a later fetch.
+
 The `swic_mirror` backend has a separate fetch-time enrichment for a SWIC map
 source: after CAP parsing, it first resolves supported packaged geocodes, then
 may use WMO's WFS map data to backfill geometry still missing. It joins only
@@ -317,6 +345,33 @@ the feed publication time, accepts only links within IDEAM's HTTPS mirror path,
 and passes the remaining documents through the shared CAP parser. IDEAM's CAP
 polygons are used directly for local point matching.
 
+The focused `imd_india` backend unions the existing WMO IMD CAP mirror with
+NDMA SACHET and IMD's public district-nowcast WFS. SACHET is a national
+multi-authority, multi-hazard feed, so an RSS author is only a fetch prefilter:
+the CAP document must also be meteorological and have a direct IMD sender or an
+IMD sender in `references`. State relays satisfying that provenance rule are
+accepted; CWC and unrelated disaster-management alerts are excluded. CAP
+normalization remains in `cap.parse_cap_alert()`, while the adapter applies CAP
+update/cancel references, drops entries expired relative to the feed, prefers
+English through the shared parser, and deduplicates WMO/SACHET copies.
+
+SACHET CAP and companion-polygon requests share a bounded, cookie-aware ETag
+cache: later requests send `If-None-Match`, reuse cached XML after `304`, and
+replace it after `200`. Inline CAP geometry always wins. A validated official
+`Polygon URL` parameter may supply companion XML; a forbidden companion
+endpoint disables further polygon requests for that refresh. LGD codes remain
+on the alert regardless of geometry.
+
+The WFS augmentation requests only warning-coloured district nowcasts and
+retains their official Polygon/MultiPolygon geometry, colour, categories,
+validity, issuing centre, and object identifier. Publisher `message`, `impact`,
+and `action` map to headline, description, and instruction. When `message` is
+empty, only the required headline is deterministically composed from categories
+and district and marked as normalization in `Alert.parameters`; descriptions
+and instructions are never invented. The larger five-day district WFS layer is
+not ingested because its per-day validity is ambiguous and its geometry payload
+is substantially larger.
+
 ## Providers
 
 `sources.py` is the source-of-truth inventory: at the time this document was
@@ -329,7 +384,7 @@ The provider implementations fall into these concrete families:
 | Family | Current implementations | Behaviour and provider-specific boundary |
 | --- | --- | --- |
 | Native JSON point query | `nws` | Sends the point upstream and maps NWS GeoJSON features directly. The query layer trusts its native spatial filtering. |
-| Structured or product-specific feeds | `bom_tropical`, `cma_tropical`, `geomet`, `ea_flood`, `hko`, `hydromet_guyana`, `ideam`, `jma`, `jma_tropical`, `meteoalarm_atom`, `meteofrance_reunion_tropical`, `nhc_gis`, `pagasa_tropical`, `swic_mirror`, `swic_extreme` | Parse provider JSON/XML, RSS/Atom, HTML, or GIS products directly. These adapters hold the source-specific field, URL, geometry, revision, or product-selection rules. `cma_tropical` defensively unwraps the NMC Typhoon Network's browser-facing JSONP and uses only systems marked current. `pagasa_tropical` accepts only the live bulletin page, never its archive links. `swic_mirror` can add a matching WMO map polygon when CAP has none; `swic_extreme` groups global WFS features for the explicit discovery helper. `nhc_gis`, `jma_tropical`, `cma_tropical`, `pagasa_tropical`, `bom_tropical`, `hko`, and `meteofrance_reunion_tropical` produce `TropicalSystem`. |
+| Structured or product-specific feeds | `bom_tropical`, `cma_tropical`, `geomet`, `ea_flood`, `hko`, `hydromet_guyana`, `ideam`, `imd_india`, `jma`, `jma_tropical`, `meteoalarm_atom`, `meteofrance_reunion_tropical`, `nhc_gis`, `pagasa_tropical`, `swic_mirror`, `swic_extreme` | Parse provider JSON/XML, RSS/Atom, HTML, or GIS products directly. These adapters hold the source-specific field, URL, geometry, revision, or product-selection rules. `cma_tropical` defensively unwraps the NMC Typhoon Network's browser-facing JSONP and uses only systems marked current. `pagasa_tropical` accepts only the live bulletin page, never its archive links. `swic_mirror` can add a matching WMO map polygon when CAP has none; `swic_extreme` groups global WFS features for the explicit discovery helper. `nhc_gis`, `jma_tropical`, `cma_tropical`, `pagasa_tropical`, `bom_tropical`, `hko`, and `meteofrance_reunion_tropical` produce `TropicalSystem`. |
 | Generic CAP | `generic_cap` (30 registered sources) | Accepts direct CAP, embedded CAP, RSS, or Atom and follows likely CAP links. Use only when the feed's link discovery works without provider rules. |
 | Focused CAP feed adapters | the remaining alert backends | Fetch a provider feed, select the provider's CAP URLs, then use `_cap_feed.fetch_cap_documents()` and `cap.parse_cap_alert()`. Their small differences are intentional: link location/type, language, fixed or query-style URLs, archive/revision filtering, and area-name cleanup vary by provider. |
 

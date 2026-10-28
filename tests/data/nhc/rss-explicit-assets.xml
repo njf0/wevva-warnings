@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:nhc="https://www.nhc.noaa.gov">
+  <channel>
+    <item>
+      <title>Summary - Tropical Storm ALPHA (AL042026/al042026)</title>
+      <link>https://www.nhc.noaa.gov/text/MIATCPAT4.shtml</link>
+      <guid isPermaLink="false">summary-al042026-202608011500</guid>
+      <description>Alpha remains over the Atlantic.</description>
+      <nhc:Cyclone>
+        <nhc:center>25.0, -70.0</nhc:center>
+        <nhc:type>Tropical Storm</nhc:type>
+        <nhc:name>ALPHA</nhc:name>
+        <nhc:wallet>AL042026</nhc:wallet>
+        <nhc:atcf>al042026</nhc:atcf>
+        <nhc:datetime>2026-08-01T15:00:00+00:00</nhc:datetime>
+        <nhc:headline>...ALPHA CONTINUES NORTHWEST...</nhc:headline>
+      </nhc:Cyclone>
+    </item>
+    <item>
+      <title>Advisory #4 Forecast Track [kmz] - Tropical Storm ALPHA (AL042026/al042026)</title>
+      <link>https://www.nhc.noaa.gov/gis/explicit/AL042026_TRACK.kmz</link>
+      <guid isPermaLink="false">gis-track-kml-al042026-4-202608011500</guid>
+    </item>
+    <item>
+      <title>Advisory #4 Cone of Uncertainty [kmz] - Tropical Storm ALPHA (AL042026/al042026)</title>
+      <link>https://www.nhc.noaa.gov/gis/explicit/AL042026_CONE.kmz</link>
+      <guid isPermaLink="false">gis-cone-kml-al042026-4-202608011500</guid>
+    </item>
+    <item>
+      <title>Advisory #4 Watches/Warnings [kmz] - Tropical Storm ALPHA (AL042026/al042026)</title>
+      <link>https://www.nhc.noaa.gov/gis/explicit/AL042026_WW.kmz</link>
+      <guid isPermaLink="false">gis-wwa-kml-al042026-4-202608011500</guid>
+    </item>
+  </channel>
+</rss>

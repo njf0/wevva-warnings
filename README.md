@@ -302,6 +302,7 @@ Currently supported at runtime:
 - Meteoalarm alias resolution to EMMA geometry, including `NUTS2`, `NUTS3`, `WARNCELL`, `WARNCELLID`, `FIPS` and `CISORP`
 - Australian BoM `AMOC-AreaCode` geometry resolution for polygonal `MW`, `RC`, `ME` and `PW` code families
 - JMA `JMA Area Code` geometry resolution from official JMA GIS boundary datasets
+- NWS geometryless-alert enrichment from official forecast, county, fire, and marine URLs in `affectedZones`
 
 The runtime package ships only small derived artifacts under
 `wevva_warnings/data/`. Large upstream source files are build inputs, not
@@ -318,6 +319,14 @@ For sources using the `swic_mirror` backend, a geometry-less CAP alert can also
 receive its matching WMO SWIC map polygon during fetch. This is a bounded,
 best-effort source enrichment: CAP geometry and packaged geocode geometry take
 precedence, and an unavailable WFS response leaves the raw alert unchanged.
+
+NWS applies a similar bounded, best-effort enrichment during its native API
+fetch. It keeps `properties.geocode` on `Alert.geocodes`, keeps the raw
+`affectedZones` URL list in `Alert.parameters`, and consults only supported
+`api.weather.gov` zone URLs when the alert has no explicit geometry. Shared
+zone requests are deduplicated and successful boundaries are cached; partial
+or complete zone failures do not discard the alert. The fallback never turns
+an area description or other prose into geometry.
 
 Intended pattern:
 
@@ -373,6 +382,17 @@ The focused backend filters the mirror history before fetching linked CAP
 documents, which cover meteorological, hydrological, landslide, and forest-fire
 alerts and provide detailed polygons suitable for local point matching.
 
+India combines three official structured routes under the existing
+`imd_india` source: the WMO Alert Hub IMD CAP mirror, CAP alerts relayed by
+NDMA SACHET, and warning-coloured IMD district nowcasts from its public WFS.
+SACHET entries must be meteorological and carry direct IMD sender provenance
+or an IMD CAP reference; CWC and unrelated state/all-hazards alerts are not
+included. CAP text and LGD geocodes are preserved, linked SACHET XML uses ETag
+caching, and the WFS nowcasts provide official district geometry for local
+matching. A headline is generated from structured nowcast fields only when IMD
+publishes no message; generated text is marked in `Alert.parameters` and is
+never presented as an IMD description or instruction.
+
 Syria is supported through the Ministry of Emergency and Disaster Management's
 official Arabic CAP feed. It publishes public all-hazard warnings with native
 polygons, including weather, flood, marine, and other emergency alerts.
@@ -408,6 +428,5 @@ the registry. We skipped them deliberately rather than because they were missed.
 | --- | --- | --- | --- |
 | Cameroon | `cm-meteo-ha` | `meteo_cameroon_en`, `meteo_cameroon_fr` | Hausa mirror feed not enabled |
 | Curaçao and Sint Maarten | `cw-meteo-es` | `meteo_cw_en`, `meteo_cw_nl`, `meteo_cw_pap` | Spanish WMO mirror not enabled |
-| India | NDMA `sachet` RSS | `imd_india` | Separate provider family from IMD |
 | Mongolia | `mn-namem-mn` | `namem_en` | Mongolian feed not enabled |
 | Nigeria | `ng-nimet-ha` | `nimet_en` | Hausa feed not enabled |
