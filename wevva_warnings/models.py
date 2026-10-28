@@ -274,7 +274,14 @@ class Alert:
 
 @dataclass(slots=True)
 class TropicalSystem:
-    """Represent one normalized tropical cyclone system."""
+    """Represent one normalized tropical cyclone system.
+
+    ``geometries`` retains named geometry supplied by the provider, including
+    explicit ordered analysed or forecast coordinates represented as tracks.
+    Scalar radii, axes, distances, and probabilities remain source facts in
+    ``parameters`` or a lazy :class:`TropicalProduct`; they do not authorize
+    callers or backends to manufacture area geometry.
+    """
 
     id: str
     source: str

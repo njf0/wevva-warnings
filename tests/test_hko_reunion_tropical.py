@@ -297,6 +297,7 @@ class MeteoFranceReunionTropicalTests(unittest.TestCase):
         self.assertEqual(system.min_pressure, '975 hPa')
         self.assertEqual(system.max_wind, '60 kt (gust 75 kt)')
         self.assertEqual(system.geometries['track']['coordinates'][-1], [58.0, -16.0])
+        self.assertEqual(set(system.geometries), {'track'})
         self.assertEqual(system.parameters['Météo-France Position Accuracy'], ['30 km'])
         self.assertEqual(
             system.parameters['Météo-France Forecast Peak'],

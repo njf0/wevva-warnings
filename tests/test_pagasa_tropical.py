@@ -65,6 +65,7 @@ class PAGASATropicalTests(unittest.TestCase):
             system.parameters['PAGASA Tropical Cyclone Wind Extent'],
             ['Strong winds extend outwards up to 180 km from the center.'],
         )
+        self.assertEqual(system.geometries, {})
         self.assertEqual(system.data_urls, {'tropical_cyclone_bulletin': source.url})
 
     def test_inactive_page_does_not_turn_archive_bulletins_into_current_systems(self) -> None:

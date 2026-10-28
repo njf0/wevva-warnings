@@ -95,6 +95,7 @@ class CMATropicalTests(unittest.TestCase):
                 'coordinates': [[120.6, 20.0], [119.5, 20.5]],
             },
         )
+        self.assertEqual(set(system.geometries), {'observed_track', 'forecast_track'})
 
         depression = systems[1]
         self.assertEqual(depression.name, '热带低压')

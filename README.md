@@ -91,7 +91,8 @@ Notes:
 - tropical `system.display_geography` resolves source-and-basin hints first, then a source-wide hint, then an issuer-country default; source metadata stays declarative and never changes `issuer_country_code`
 - current explicit map-context exceptions are CPHC → Hawaii and Météo-France La Réunion → Réunion; NHC Eastern Pacific observations use the ordinary US issuer-country context
 - each `CanonicalTropicalSystem` contains only a normalized display `name` and ordered source `observations`; it has no canonical centre, track, wind, pressure, movement, classification, or intensity
-- tropical systems retain source-specific tracks, cones, wind fields and warning layers; CMA supplies analysed and BABJ forecast tracks, JMA supplies forecast-centre tracks when the latest VPTW report contains them, and HKO forecast tracks contain only timed/indexed fixes rather than untimed display-curve vertices. A track or cone is storm context, not automatically a local official warning
+- tropical systems retain source-specific tracks, cones, wind fields and warning layers only when the official structured product supplies those coordinates. Explicit ordered analysed or forecast positions may form a track, but the library does not buffer points, project radii, join probability circles, geocode prose, or otherwise manufacture area geometry. Scalar radii, axes, distances and provider-stated probabilities remain source facts in `parameters` or lazy structured products
+- CMA supplies analysed and BABJ forecast tracks, JMA supplies forecast-centre tracks when the latest VPTW report contains them, and HKO forecast tracks contain only timed/indexed fixes rather than untimed display-curve vertices. A track, probability area, cone, wind field, watch, or warning keeps its provider meaning and is not automatically a local official warning
 - supplementary `TropicalProduct` objects keep a small semantic `kind`, the provider's natural `label`, Markdown-formatted text by default, and optional provider-specific structured `data`; providers may retain `plain` for layouts that render poorly as Markdown. Product sets intentionally vary by provider and may be empty
 
 After selecting a source observation, retrieve richer detail explicitly:
@@ -277,6 +278,7 @@ comments:
 - [task 0013](docs/tasks/0013-validate-tropical-source-follow-ups.md): validate seasonal provider layouts during live events
 - [task 0014](docs/tasks/0014-add-bmkg-tcwc-jakarta-tropical-source.md): implement the verified BMKG candidate
 - [task 0017](docs/tasks/0017-finish-tropical-display-scope-and-geometry-semantics.md): resolve NHC Eastern Pacific map scope and remaining track semantics
+- [task 0018](docs/tasks/0018-complete-structured-tropical-provider-data.md): preserve additional official tropical data without constructing geometry
 
 For the full current list, use:
 

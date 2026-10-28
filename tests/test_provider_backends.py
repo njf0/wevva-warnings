@@ -1383,12 +1383,14 @@ JMA_TROPICAL_FORECAST_REPORT = JMA_TROPICAL_REPORT.replace(
 <DateTime type="予報　２４時間後">2026-08-12T22:00:00+09:00</DateTime>
 <Item><Kind><Property><Type>中心</Type><CenterPart><ProbabilityCircle type="予報円">
 <jmx_eb:BasePoint type="中心位置（度）">+36.5+141.0/</jmx_eb:BasePoint>
+<jmx_eb:Radius type="７０パーセント確率半径" unit="km">100</jmx_eb:Radius>
 </ProbabilityCircle></CenterPart></Property></Kind></Item>
 </MeteorologicalInfo>
 <MeteorologicalInfo>
 <DateTime type="予報　４８時間後">2026-08-13T22:00:00+09:00</DateTime>
 <Item><Kind><Property><Type>中心</Type><CenterPart><ProbabilityCircle type="予報円">
 <jmx_eb:BasePoint type="中心位置（度）">+37.0+142.0/</jmx_eb:BasePoint>
+<jmx_eb:Radius type="７０パーセント確率半径" unit="km">185</jmx_eb:Radius>
 </ProbabilityCircle></CenterPart></Property></Kind></Item>
 </MeteorologicalInfo>
 </MeteorologicalInfos>''',
@@ -2166,6 +2168,7 @@ class ProviderBackendTests(unittest.TestCase):
                 'coordinates': [[139.9, 35.9], [141.0, 36.5], [142.0, 37.0]],
             },
         )
+        self.assertEqual(set(system.geometries), {'forecast_track'})
 
         formation = next(system for system in systems if system.id == 'TD2601')
         self.assertEqual(formation.classification, 'Developing Tropical Depression')

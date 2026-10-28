@@ -139,6 +139,17 @@ provider URLs, named geometry layers, and source-specific values in
 them; the library does not infer them from a track or headline.
 `CanonicalTropicalSystem` carries only a group display name and its ordered
 `TropicalSystem` observations; it deliberately has no canonical meteorology.
+Named tropical geometry follows a source-fidelity boundary. A backend may
+normalize geometry encoded by the official structured payload, including an
+explicit ordered sequence of analysed or forecast coordinates represented as a
+track. It must not construct area geometry by buffering a centre or track,
+projecting a radius or axis, joining probability circles, geocoding prose, or
+interpreting rendered map pixels. Published radii, axes, distances, thresholds,
+and probabilities remain provider facts in `parameters` or lazy structured
+product `data` unless the source also supplies the corresponding geometry.
+Converting an official KML, GML, or GeoJSON geometry into the public GeoJSON
+shape is normalization, not an inferred meteorological area.
+
 The CMA adapter retains its ordered analysed positions as `observed_track` and
 the latest BABJ forecast centres as `forecast_track`. The JMA adapter builds
 `forecast_track` only from forecast centres in the same latest VPTW report; it
@@ -202,10 +213,12 @@ supplementary products: its integrated GML already supplies the common
 forecast layers, and no speculative GML-to-separate-text-product correlation
 is performed.
 
-Tracks, cones, wind fields, and watches or warnings are distinct provider
-concepts. Backends retain their named layers instead of flattening them into
-one generic warning polygon. A downstream UI may show a storm near a location,
-but must not present a forecast track or cone as a local official warning.
+Tracks, probability areas, cones, wind fields, and watches or warnings are
+distinct provider concepts. Backends retain provider-supplied named layers
+instead of flattening them into one generic warning polygon. The presence of a
+radius, probability, distance, or forecast point does not create a geometry
+layer. A downstream UI may show a storm near a location, but must not present a
+forecast track or cone as a local official warning.
 Tropical systems can be relevant across national boundaries, which is why the
 separate proximity query deliberately checks regional providers rather than
 using country-source routing.
@@ -296,8 +309,11 @@ callback contract.
 `models.Alert` carries common alert content, timing, area names, raw grouped
 `geocodes` and `parameters`, optional GeoJSON geometry, and `source_info`.
 `TropicalSystem` carries storm-specific fields plus named geometry layers and
-data URLs. These fields intentionally retain provider-specific information;
-the tropical/offshore boundary above explains why their semantics must not be
+data URLs. Its geometry layers contain provider-encoded geometry or explicit
+ordered provider coordinates normalized as tracks; scalar radius, probability,
+axis, threshold, and distance values remain data rather than geometry. These
+fields intentionally retain provider-specific information; the
+tropical/offshore boundary above explains why their semantics must not be
 collapsed into ordinary land-warning matching.
 
 `cap.parse_cap_alert()` is the common CAP 1.2 normalization path: it chooses a
