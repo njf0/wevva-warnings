@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 import math
+import re
 from typing import Any
 
 from ..models import Alert, Geometry, TropicalProduct, TropicalSystem
@@ -23,6 +24,8 @@ _CLASSIFICATIONS = {
     'SUPERTY': 'Super Typhoon',
 }
 _NAMELESS = {'', 'nameless', 'none', 'null'}
+_WIND_THRESHOLD_RE = re.compile(r'^(\d+(?:\.\d+)?)\s*(KTS?)$', re.IGNORECASE)
+_WIND_RADIUS_QUADRANTS = ('northeast', 'southeast', 'southwest', 'northwest')
 
 
 class CMATropicalBackend(WarningBackend):
@@ -112,17 +115,20 @@ class CMATropicalBackend(WarningBackend):
             )
         except BackendError:
             return []
-        forecast = _cma_forecast_product_data(payload, system=system)
-        if forecast is None:
+        data = _cma_product_data(payload, system=system)
+        if data is None:
             return []
+        has_forecast = bool(data.get('points'))
+        kind = 'forecast' if has_forecast else 'analysis'
+        label = 'Forecast' if has_forecast else 'Analysis'
         return [
             TropicalProduct(
-                kind='forecast',
-                label='Forecast',
-                title=f'{system.name} Forecast',
+                kind=kind,
+                label=label,
+                title=f'{system.name} {label}',
                 issued_at=system.issued_at,
                 url=detail_url,
-                data=forecast,
+                data=data,
             )
         ]
 
@@ -313,12 +319,12 @@ def _forecast_track(current: list[object]) -> Geometry | None:
     return {'type': 'LineString', 'coordinates': coordinates}
 
 
-def _cma_forecast_product_data(
+def _cma_product_data(
     payload: str,
     *,
     system: TropicalSystem,
 ) -> dict[str, Any] | None:
-    """Return the current BABJ forecast as restrained provider-specific data."""
+    """Return current wind radii and the BABJ forecast without making areas."""
     data = _decode_jsonp_object(payload)
     tropical_cyclone = data.get('typhoon') if data else None
     if not isinstance(tropical_cyclone, list) or len(tropical_cyclone) < 9:
@@ -330,19 +336,31 @@ def _cma_forecast_product_data(
     current = _latest_observation(_at(tropical_cyclone, 8))
     if current is None:
         return None
+
+    product_data: dict[str, Any] = {}
+    wind_radii = _cma_wind_radii_data(_at(current, 10))
+    if wind_radii:
+        analysis: dict[str, Any] = {'wind_radii': wind_radii}
+        valid_at = _parse_cma_time(_at(current, 1))
+        if valid_at is not None:
+            analysis['valid_at'] = valid_at.isoformat()
+        product_data['analysis'] = analysis
+
     agencies = _at(current, 11)
-    if not isinstance(agencies, dict):
-        return None
-    forecasts = next(
-        (
-            value
-            for key, value in agencies.items()
-            if isinstance(key, str) and key.casefold() == 'babj'
-        ),
-        None,
+    forecasts = (
+        next(
+            (
+                value
+                for key, value in agencies.items()
+                if isinstance(key, str) and key.casefold() == 'babj'
+            ),
+            None,
+        )
+        if isinstance(agencies, dict)
+        else None
     )
     if not isinstance(forecasts, list):
-        return None
+        return product_data or None
 
     points: list[dict[str, Any]] = []
     for forecast in forecasts:
@@ -376,8 +394,56 @@ def _cma_forecast_product_data(
             point['classification_code'] = classification_code
         points.append(point)
     if not points:
+        return product_data or None
+    product_data['agency'] = 'BABJ'
+    product_data['points'] = points
+    return product_data
+
+
+def _cma_wind_radii_data(value: object) -> list[dict[str, Any]]:
+    """Return thresholded quadrant radii from CMA's positional analysis field.
+
+    CMA's official map client names array positions 1–4 northeast, southeast,
+    southwest, and northwest and treats their values as kilometres. The final
+    array member is a record identifier rather than meteorological data.
+    """
+    if not isinstance(value, list):
+        return []
+
+    wind_radii: list[dict[str, Any]] = []
+    for entry in value:
+        if not isinstance(entry, list) or len(entry) < 5:
+            continue
+        threshold = _cma_wind_threshold(_at(entry, 0))
+        if threshold is None:
+            continue
+        quadrants = {
+            quadrant: radius
+            for index, quadrant in enumerate(_WIND_RADIUS_QUADRANTS, start=1)
+            if (radius := _nonnegative_number(_at(entry, index))) is not None
+        }
+        if not quadrants:
+            continue
+        wind_radii.append(
+            {
+                'threshold': threshold,
+                'radii': {'unit': 'km', **quadrants},
+            }
+        )
+    return wind_radii
+
+
+def _cma_wind_threshold(value: object) -> dict[str, int | float | str] | None:
+    text = _text(value)
+    if text is None:
         return None
-    return {'agency': 'BABJ', 'points': points}
+    match = _WIND_THRESHOLD_RE.fullmatch(text)
+    if match is None:
+        return None
+    threshold = _number(match.group(1))
+    if threshold is None or threshold < 0:
+        return None
+    return {'value': threshold, 'unit': match.group(2).upper()}
 
 
 def _point(*, lon: object, lat: object) -> list[float] | None:
@@ -453,6 +519,11 @@ def _number(value: object) -> int | float | None:
     if not math.isfinite(number):
         return None
     return int(number) if number.is_integer() else number
+
+
+def _nonnegative_number(value: object) -> int | float | None:
+    number = _number(value)
+    return number if number is not None and number >= 0 else None
 
 
 def _identifier(value: object) -> str | None:

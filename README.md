@@ -114,8 +114,15 @@ blocks. Unrecognized advisory layouts and PAGASA bulletin text receive only
 safe escaping and preserved line breaks. PAGASA exposes its authoritative
 Tropical Cyclone Bulletin as one product. JMA, CMA,
 HKO, and Météo-France La Réunion expose useful structured forecast or analysis
-detail from their existing official data. A provider with no reliable extra
-product simply returns an empty list.
+detail from their existing official data. JMA's detail retains its native
+analysis validity and additive current facts, plus concise forecast
+classification, location, movement, pressure, wind and gust fields. Alternate
+official units and meaningful conditions remain available as restrained JMA
+source values. Probability-circle and wind/storm-warning thresholds, radii and
+axes remain structured provider data rather than generated area geometry. A
+provider with no reliable extra product simply returns an empty list. CMA's
+lazy detail similarly retains its native thresholded quadrant radii and BABJ
+forecast points without constructing wind polygons.
 
 ### Global WMO SWIC Extreme-warning discovery
 
@@ -263,11 +270,24 @@ contains them.
 | `nhc_gis_eastern_pacific` | NHC / Eastern Pacific | `forecast_track`, `cone`, `watch_warning` | Public Advisory, Forecast Discussion, Wind Probabilities, Warnings, Update | default `US` |
 | `cphc_gis_central_pacific` | CPHC / Central Pacific | `forecast_track`, `cone`, `watch_warning` | Public Advisory, Forecast Discussion, Wind Probabilities, Warnings, Update | explicit Hawaii (`US-HI`) |
 | `jma_tropical` | JMA / Northwest Pacific | `forecast_track` | Forecast | default `JP` |
-| `cma_tropical` | CMA/NMC / Northwest Pacific and South China Sea | `observed_track`, `forecast_track` | Forecast | default `CN` |
+| `cma_tropical` | CMA/NMC / Northwest Pacific and South China Sea | `observed_track`, `forecast_track` | Analysis, Forecast | default `CN` |
 | `pagasa_tropical` | PAGASA / Philippine Area of Responsibility | none | Tropical Cyclone Bulletin | default `PH` |
 | `bom_tropical` | BoM / Australian region | `forecast_track`, `warning_area`, `watch_area`, `forecast_area`, `wind_area` | none | default `AU` |
 | `hko_tropical` | HKO / Northwest Pacific and South China Sea | `observed_track`, `forecast_track` | Forecast | default `HK` |
 | `meteofrance_reunion_tropical` | Météo-France / Southwest Indian Ocean | `track` | Analysis, Forecast | explicit Réunion (`RE`) |
+
+HKO's public map documents a 70% Potential Track Area, but neither its track
+XML nor its separately published CSDI point GML supplies that area as geometry.
+The library therefore does not copy the map's radius table or construct a cone
+or potential-track polygon from HKO's forecast fixes.
+
+India's documented IMD cyclone track, wind-warning, and cone APIs require
+authenticated key access, so they are not registered built-in sources. WMO
+SWIC's anonymous tropical JSON has also been evaluated but is not registered:
+its issuing-centre separation and reuse terms are promising, while an RSMC New
+Delhi example, identity across successive updates, and an observed quiet-state
+response still need live validation. The library does not substitute the SWIC
+aggregator for its direct tropical providers.
 
 Known tropical follow-up work is recorded rather than hidden in provider
 comments:

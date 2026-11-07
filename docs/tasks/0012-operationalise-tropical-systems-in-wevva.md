@@ -172,7 +172,8 @@ The final storm map uses a track-and-cone-fitted global Natural Earth backdrop.
 Resolved `display_geography` supplies a label only when its geometry is visible;
 it no longer selects or constrains the land layer. Lazy products, structured
 source summaries, centre weather, responsive layout, and track/cone toggles are
-covered by the downstream tests and architecture documentation. The editable
-local dependency remains intentional until a compatible release is published.
+covered by the downstream tests and architecture documentation. The compatible
+upstream contract is published in `wevva-warnings` `v0.6.0`, so the downstream
+editable sibling dependency can now be replaced with that released version.
 Optional display-component and smooth-curve vocabulary work remains separately
 proposed in task 0017 and is not required by the implemented downstream screen.

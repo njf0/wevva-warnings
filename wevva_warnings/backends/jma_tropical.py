@@ -98,17 +98,20 @@ class JMATropicalBackend(WarningBackend):
         )
         if parsed is None or parsed.id != system.id:
             return []
-        forecast = _jma_forecast_product_data(payload)
-        if forecast is None:
+        data = _jma_forecast_product_data(payload)
+        if data is None:
             return []
+        has_forecast = bool(data.get('points'))
+        kind = 'forecast' if has_forecast else 'analysis'
+        label = 'Forecast' if has_forecast else 'Analysis'
         return [
             TropicalProduct(
-                kind='forecast',
-                label='Forecast',
-                title=f'{system.name} Forecast',
+                kind=kind,
+                label=label,
+                title=f'{system.name} {label}',
                 issued_at=parsed.issued_at,
                 url=system.url,
-                data=forecast,
+                data=data,
             )
         ]
 
@@ -386,7 +389,7 @@ def _forecast_center(item: ElementTree.Element) -> tuple[float, float] | None:
 
 
 def _jma_forecast_product_data(payload: str) -> dict[str, object] | None:
-    """Return JMA forecast blocks with their provider times and metrics."""
+    """Return JMA analysis and forecast facts without constructing areas."""
     try:
         root = ElementTree.fromstring(payload)
     except ElementTree.ParseError:
@@ -395,6 +398,7 @@ def _jma_forecast_product_data(payload: str) -> dict[str, object] | None:
     if body is None:
         return None
 
+    analysis = _jma_analysis_product_data(body)
     points: list[dict[str, object]] = []
     for information in body.iter():
         if local_name(information.tag) != 'MeteorologicalInfo':
@@ -408,26 +412,343 @@ def _jma_forecast_product_data(payload: str) -> dict[str, object] | None:
             continue
         latitude, longitude = point
         product_point: dict[str, object] = {
-            'forecast_type': forecast_type,
             'latitude': latitude,
             'longitude': longitude,
         }
         lead_hours = _jma_forecast_lead_hours(forecast_type)
         valid_at = _child_text(information, 'DateTime')
-        pressure = _metric(item, property_type='中心', value_name='Pressure')
-        wind = _metric(item, property_type='風', value_name='WindSpeed')
         if lead_hours is not None:
             product_point['lead_hours'] = lead_hours
+        elif forecast_type:
+            product_point['forecast_label'] = forecast_type
         if valid_at:
             product_point['valid_at'] = valid_at
-        if pressure:
-            product_point['minimum_pressure'] = pressure
-        if wind:
-            product_point['maximum_wind'] = wind
+        product_point.update(_jma_item_product_data(item))
         points.append(product_point)
-    if not points:
+    data: dict[str, object] = {}
+    if analysis:
+        data['analysis'] = analysis
+    if points:
+        data['points'] = points
+    return data or None
+
+
+def _jma_analysis_product_data(body: ElementTree.Element) -> dict[str, object] | None:
+    """Return current facts that add to the ordinary tropical-system fields."""
+    information = _current_tropical_information(body)
+    item = _first_child(information, 'Item') if information is not None else None
+    if item is None:
         return None
-    return {'points': points}
+
+    item_data = _jma_item_product_data(item)
+    analysis: dict[str, object] = {}
+    valid_at = _child_text(information, 'DateTime')
+    if valid_at:
+        analysis['valid_at'] = valid_at
+    classification_details = item_data.get('classification_details')
+    if (
+        isinstance(classification_details, dict)
+        and any(key in classification_details for key in ('area_class', 'intensity_class'))
+    ):
+        analysis['classification'] = item_data['classification']
+        analysis['classification_details'] = classification_details
+    for key in (
+        'location',
+        'maximum_gust',
+        'source_values',
+        'probability_circle',
+        'wind_areas',
+    ):
+        if key in item_data:
+            analysis[key] = item_data[key]
+
+    # A validity time alone, or the raw cyclone class already represented by
+    # TropicalSystem, does not justify a separate current-only product.
+    return analysis if any(key != 'valid_at' for key in analysis) else None
+
+
+def _jma_item_product_data(item: ElementTree.Element) -> dict[str, object]:
+    """Return restrained provider-specific facts from one JMA item."""
+    data: dict[str, object] = {}
+    classification_details = _jma_classification_data(item)
+    classification = _jma_classification(classification_details)
+    if classification:
+        data['classification'] = classification
+        data['classification_details'] = classification_details
+
+    center_property = _property(item, '中心')
+    if center_property is not None:
+        location = _descendant_text(center_property, 'Location')
+        if location:
+            data['location'] = location
+        movement, movement_values = _jma_movement_data(center_property)
+        if movement:
+            data['movement'] = movement
+
+    pressure = _metric(item, property_type='中心', value_name='Pressure')
+    wind = _metric(
+        item,
+        property_type='風',
+        value_name='WindSpeed',
+        value_type='最大風速',
+    )
+    gust = _metric(
+        item,
+        property_type='風',
+        value_name='WindSpeed',
+        value_type='最大瞬間風速',
+    )
+    if pressure:
+        data['minimum_pressure'] = pressure
+    if wind:
+        data['maximum_wind'] = wind
+    if gust:
+        data['maximum_gust'] = gust
+
+    source_values: dict[str, object] = {}
+    if _jma_source_values_are_useful(movement_values):
+        source_values['movement_speed'] = _jma_value_collection(movement_values)
+    maximum_wind_values = _jma_wind_values(item, value_type='最大風速')
+    maximum_gust_values = _jma_wind_values(item, value_type='最大瞬間風速')
+    if _jma_source_values_are_useful(maximum_wind_values):
+        source_values['maximum_wind'] = _jma_value_collection(maximum_wind_values)
+    if _jma_source_values_are_useful(maximum_gust_values):
+        source_values['maximum_gust'] = _jma_value_collection(maximum_gust_values)
+    if source_values:
+        data['source_values'] = source_values
+
+    probability_circle = _jma_probability_circle_data(item)
+    if probability_circle:
+        data['probability_circle'] = probability_circle
+    wind_areas = _jma_wind_area_data(item)
+    if wind_areas:
+        data['wind_areas'] = wind_areas
+    return data
+
+
+def _jma_classification_data(item: ElementTree.Element) -> dict[str, str]:
+    property_node = _property(item, '階級')
+    if property_node is None:
+        return {}
+    fields = (
+        ('typhoon_class', 'TyphoonClass'),
+        ('area_class', 'AreaClass'),
+        ('intensity_class', 'IntensityClass'),
+    )
+    return {
+        key: value
+        for key, element_name in fields
+        if (value := _descendant_text(property_node, element_name))
+    }
+
+
+def _jma_classification(details: dict[str, str]) -> str | None:
+    """Return a stable display value without losing distinct source parts."""
+    components: list[str] = []
+    cyclone_class = details.get('typhoon_class')
+    intensity_class = details.get('intensity_class')
+    if cyclone_class:
+        components.append(cyclone_class)
+    if intensity_class and intensity_class not in components:
+        components.append(intensity_class)
+    if not components and (area_class := details.get('area_class')):
+        components.append(area_class)
+    return ' / '.join(components) or None
+
+
+def _jma_movement_data(
+    center_property: ElementTree.Element,
+) -> tuple[str | None, list[dict[str, str]]]:
+    center_part = _first_descendant(center_property, 'CenterPart')
+    movement_parent = center_part if center_part is not None else center_property
+    direction_node = _first_child(movement_parent, 'Direction')
+    direction = _jma_node_text(direction_node)
+    speeds = [
+        value
+        for child in movement_parent
+        if local_name(child.tag) == 'Speed'
+        if (value := _jma_measurement_data(child))
+    ]
+    speed = _jma_display_measurement(speeds[0]) if speeds else None
+    if direction and speed:
+        return f'{direction} at {speed}', speeds
+    return direction or speed, speeds
+
+
+def _jma_wind_values(item: ElementTree.Element, *, value_type: str) -> list[dict[str, str]]:
+    property_node = _property(item, '風')
+    if property_node is None:
+        return []
+    wind_part = _first_descendant(property_node, 'WindPart')
+    return (
+        _jma_measurements(wind_part, 'WindSpeed', value_type=value_type)
+        if wind_part is not None
+        else []
+    )
+
+
+def _jma_probability_circle_data(item: ElementTree.Element) -> dict[str, object]:
+    center_property = _property(item, '中心')
+    circle = _first_descendant(center_property, 'ProbabilityCircle') if center_property is not None else None
+    if circle is None:
+        return {}
+    data: dict[str, object] = {}
+    circle_type = circle.attrib.get('type')
+    if circle_type:
+        data['type'] = circle_type
+    axes = _jma_axes_data(circle)
+    if axes:
+        data['axes'] = axes
+    return data
+
+
+def _jma_wind_area_data(item: ElementTree.Element) -> list[dict[str, object]]:
+    wind_property = _property(item, '風')
+    if wind_property is None:
+        return []
+
+    areas: list[dict[str, object]] = []
+    for part in wind_property.iter():
+        if local_name(part.tag) != 'WarningAreaPart':
+            continue
+        area: dict[str, object] = {}
+        area_type = part.attrib.get('type')
+        if area_type:
+            area['type'] = area_type
+        thresholds = _jma_measurements(part, 'WindSpeed')
+        if thresholds:
+            area['threshold'] = _jma_value_collection(thresholds)
+        axes = _jma_axes_data(part)
+        if axes:
+            area['axes'] = axes
+        if area:
+            areas.append(area)
+    return areas
+
+
+def _jma_axes_data(element: ElementTree.Element) -> list[dict[str, object]]:
+    axes: list[dict[str, object]] = []
+    for axis_node in element.iter():
+        if local_name(axis_node.tag) != 'Axis':
+            continue
+        axis: dict[str, object] = {}
+        direction = _jma_node_text(_first_descendant(axis_node, 'Direction'))
+        if direction:
+            axis['direction'] = direction
+        radius_pairs = [
+            (node, value)
+            for node in axis_node.iter()
+            if local_name(node.tag) == 'Radius'
+            if (value := _jma_measurement_data(node))
+        ]
+        radii = [value for _node, value in radius_pairs]
+        radius_types = list(
+            dict.fromkeys(
+                node.attrib['type']
+                for node, _value in radius_pairs
+                if node.attrib.get('type')
+            )
+        )
+        if len(radius_types) == 1:
+            axis['radius_type'] = radius_types[0]
+        elif radius_types:
+            for node, radius in radius_pairs:
+                if radius_type := node.attrib.get('type'):
+                    radius['type'] = radius_type
+        if radii:
+            axis['radii'] = radii
+        if radii:
+            axes.append(axis)
+    return axes
+
+
+def _jma_measurements(
+    element: ElementTree.Element | None,
+    element_name: str,
+    *,
+    value_type: str | None = None,
+) -> list[dict[str, str]]:
+    if element is None:
+        return []
+    values: list[dict[str, str]] = []
+    for node in element.iter():
+        if local_name(node.tag) != element_name:
+            continue
+        if value_type is not None and node.attrib.get('type') != value_type:
+            continue
+        value = _jma_measurement_data(node)
+        if value:
+            values.append(value)
+    return values
+
+
+def _jma_measurement_data(node: ElementTree.Element | None) -> dict[str, str]:
+    """Return only value attributes that carry meteorological meaning."""
+    if node is None:
+        return {}
+    text = ''.join(node.itertext()).strip()
+    condition = node.attrib.get('condition')
+    if not text and not condition:
+        return {}
+    data: dict[str, str] = {}
+    if text:
+        data['value'] = text
+        if unit := node.attrib.get('unit'):
+            data['unit'] = unit
+    if condition:
+        data['condition'] = condition
+    return data
+
+
+def _jma_node_text(node: ElementTree.Element | None) -> str | None:
+    if node is None:
+        return None
+    return (
+        ''.join(node.itertext()).strip()
+        or node.attrib.get('description')
+        or node.attrib.get('condition')
+    )
+
+
+def _jma_display_measurement(value: dict[str, str]) -> str | None:
+    text = value.get('value')
+    if text:
+        unit = value.get('unit')
+        numeric = text.translate(str.maketrans('０１２３４５６７８９', '0123456789'))
+        if unit and re.fullmatch(r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)', numeric):
+            return f'{text} {unit}'
+        return text
+    return value.get('condition')
+
+
+def _jma_source_values_are_useful(values: list[dict[str, str]]) -> bool:
+    """Return whether values add units, conditions, or distinct source facts."""
+    if not values:
+        return False
+    if any(value.get('condition') for value in values):
+        return True
+    units = {value.get('unit') for value in values if value.get('unit')}
+    facts = {(value.get('value'), value.get('unit')) for value in values}
+    return len(units) > 1 or len(facts) > 1
+
+
+def _jma_value_collection(values: list[dict[str, str]]) -> dict[str, object]:
+    """Lift a shared condition while retaining provider-published units."""
+    conditions = {value.get('condition') for value in values}
+    condition = next(iter(conditions)) if len(conditions) == 1 else None
+    compact_values: list[dict[str, str]] = []
+    for value in values:
+        compact = dict(value)
+        if condition:
+            compact.pop('condition', None)
+        if compact:
+            compact_values.append(compact)
+    collection: dict[str, object] = {}
+    if compact_values:
+        collection['values'] = compact_values
+    if condition:
+        collection['condition'] = condition
+    return collection
 
 
 def _jma_forecast_lead_hours(forecast_type: str) -> int | None:
@@ -464,27 +785,31 @@ def _movement(item: ElementTree.Element) -> str | None:
     for property_node in _properties(item):
         if _child_text(property_node, 'Type') != '中心':
             continue
-        direction = _descendant_text(property_node, 'Direction')
-        speed = _descendant_text(property_node, 'Speed')
-        if not direction and not speed:
-            continue
-        speed_node = _first_descendant(property_node, 'Speed')
-        unit = speed_node.attrib.get('unit') if speed_node is not None else None
-        if direction and speed:
-            return f'{direction} at {speed}{f" {unit}" if unit else ""}'
-        return direction or (f'{speed}{f" {unit}" if unit else ""}')
+        movement, _source_values = _jma_movement_data(property_node)
+        if movement:
+            return movement
     return None
 
 
-def _metric(item: ElementTree.Element, *, property_type: str, value_name: str) -> str | None:
+def _metric(
+    item: ElementTree.Element,
+    *,
+    property_type: str,
+    value_name: str,
+    value_type: str | None = None,
+) -> str | None:
     for property_node in _properties(item):
         if _child_text(property_node, 'Type') != property_type:
             continue
-        value = _descendant_text(property_node, value_name)
-        value_node = _first_descendant(property_node, value_name)
-        if value and value_node is not None:
-            unit = value_node.attrib.get('unit')
-            return f'{value}{f" {unit}" if unit else ""}'
+        for value_node in property_node.iter():
+            if local_name(value_node.tag) != value_name:
+                continue
+            if value_type is not None and value_node.attrib.get('type') != value_type:
+                continue
+            value = ''.join(value_node.itertext()).strip()
+            if value:
+                unit = value_node.attrib.get('unit')
+                return f'{value}{f" {unit}" if unit else ""}'
     return None
 
 
@@ -546,6 +871,13 @@ def _descendant_text(element: ElementTree.Element, name: str) -> str | None:
 
 def _properties(item: ElementTree.Element) -> list[ElementTree.Element]:
     return [node for node in item.iter() if local_name(node.tag) == 'Property']
+
+
+def _property(item: ElementTree.Element, property_type: str) -> ElementTree.Element | None:
+    for property_node in _properties(item):
+        if _child_text(property_node, 'Type') == property_type:
+            return property_node
+    return None
 
 
 def _headline_conditions(head: ElementTree.Element) -> dict[str, str]:

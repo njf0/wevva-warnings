@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import call, patch
 import zipfile
 
-from wevva_warnings import get_tropical_products, match_alerts_to_point
+from wevva_warnings import TropicalSystem, get_tropical_products, match_alerts_to_point
 from wevva_warnings.backends.aemet import AEMETBackend
 from wevva_warnings.backends.anmeteo import ANMETEOBackend
 from wevva_warnings.backends.bahrain import BahrainBackend
@@ -1366,9 +1366,29 @@ JMA_TROPICAL_REPORT = """\
 <DateTime type="実況">2026-08-11T22:00:00+09:00</DateTime>
 <Item>
 <Kind><Property><Type>呼称</Type><TyphoonNamePart><Name>CHAN-HOM</Name><Number>2615</Number></TyphoonNamePart></Property></Kind>
-<Kind><Property><Type>階級</Type><TyphoonClass>台風(TS)</TyphoonClass></Property></Kind>
-<Kind><Property><Type>中心</Type><jmx_eb:Coordinate type="中心位置（度）">+35.9+139.9/</jmx_eb:Coordinate><Direction>西南西</Direction><Speed unit="km/h">30</Speed><Pressure unit="hPa">990</Pressure></Property></Kind>
-<Kind><Property><Type>風</Type><WindSpeed type="最大風速" unit="m/s">23</WindSpeed></Property></Kind>
+<Kind><Property><Type>階級</Type><TyphoonClass>台風(TS)</TyphoonClass><IntensityClass>強い</IntensityClass></Property></Kind>
+<Kind><Property><Type>中心</Type><jmx_eb:Coordinate type="中心位置（度）">+35.9+139.9/</jmx_eb:Coordinate><Location>日本の南</Location><Direction type="移動方向" unit="１６方位漢字">西南西</Direction><Speed type="移動速度" unit="km/h">30</Speed><Pressure type="中心気圧" unit="hPa">990</Pressure></Property></Kind>
+<Kind><Property><Type>風</Type><WindPart>
+<WindSpeed type="最大風速" condition="中心付近" unit="m/s">23</WindSpeed>
+<WindSpeed type="最大瞬間風速" unit="m/s">35</WindSpeed>
+</WindPart>
+<WarningAreaPart type="暴風域">
+<WindSpeed type="風速" condition="以上" unit="ノット">50</WindSpeed>
+<WindSpeed type="風速" condition="以上" unit="m/s">25</WindSpeed>
+<jmx_eb:Circle><jmx_eb:Axes><jmx_eb:Axis>
+<jmx_eb:Direction description="全域" condition="全域" unit="８方位漢字" type="方向"/>
+<jmx_eb:Radius unit="海里" type="半径">45</jmx_eb:Radius>
+<jmx_eb:Radius unit="km" type="半径">85</jmx_eb:Radius>
+</jmx_eb:Axis></jmx_eb:Axes></jmx_eb:Circle>
+</WarningAreaPart>
+<WarningAreaPart type="強風域">
+<WindSpeed type="風速" condition="以上" unit="ノット">30</WindSpeed>
+<jmx_eb:Circle><jmx_eb:Axes>
+<jmx_eb:Axis><jmx_eb:Direction unit="８方位漢字" type="方向">北</jmx_eb:Direction><jmx_eb:Radius unit="km" type="半径">220</jmx_eb:Radius></jmx_eb:Axis>
+<jmx_eb:Axis><jmx_eb:Direction unit="８方位漢字" type="方向">南</jmx_eb:Direction><jmx_eb:Radius unit="km" type="半径">165</jmx_eb:Radius></jmx_eb:Axis>
+</jmx_eb:Axes></jmx_eb:Circle>
+</WarningAreaPart>
+</Property></Kind>
 </Item>
 </MeteorologicalInfo>
 </MeteorologicalInfos>
@@ -1381,16 +1401,37 @@ JMA_TROPICAL_FORECAST_REPORT = JMA_TROPICAL_REPORT.replace(
     '''</MeteorologicalInfo>
 <MeteorologicalInfo>
 <DateTime type="予報　２４時間後">2026-08-12T22:00:00+09:00</DateTime>
-<Item><Kind><Property><Type>中心</Type><CenterPart><ProbabilityCircle type="予報円">
+<Item>
+<Kind><Property><Type>階級</Type><TyphoonClass>台風(TY)</TyphoonClass><AreaClass>大型</AreaClass><IntensityClass>非常に強い</IntensityClass></Property></Kind>
+<Kind><Property><Type>中心</Type><CenterPart><ProbabilityCircle type="予報円">
 <jmx_eb:BasePoint type="中心位置（度）">+36.5+141.0/</jmx_eb:BasePoint>
+<jmx_eb:Axes><jmx_eb:Axis>
+<jmx_eb:Direction description="全域" condition="全域" unit="８方位漢字" type="方向"/>
+<jmx_eb:Radius type="７０パーセント確率半径" unit="海里">55</jmx_eb:Radius>
 <jmx_eb:Radius type="７０パーセント確率半径" unit="km">100</jmx_eb:Radius>
-</ProbabilityCircle></CenterPart></Property></Kind></Item>
+</jmx_eb:Axis></jmx_eb:Axes>
+</ProbabilityCircle><Location>日本の東</Location><Direction type="移動方向" unit="１６方位漢字">北東</Direction><Speed type="移動速度" unit="ノット">10</Speed><Speed type="移動速度" unit="km/h">20</Speed><Pressure type="中心気圧" unit="hPa">970</Pressure></CenterPart></Property></Kind>
+<Kind><Property><Type>風</Type><WindPart>
+<WindSpeed type="最大風速" condition="中心付近" unit="ノット">80</WindSpeed>
+<WindSpeed type="最大風速" condition="中心付近" unit="m/s">40</WindSpeed>
+<WindSpeed type="最大瞬間風速" unit="ノット">115</WindSpeed>
+<WindSpeed type="最大瞬間風速" unit="m/s">60</WindSpeed>
+</WindPart><WarningAreaPart type="暴風警戒域">
+<WindSpeed type="風速" condition="以上" unit="ノット">50</WindSpeed>
+<WindSpeed type="風速" condition="以上" unit="m/s">25</WindSpeed>
+<jmx_eb:Circle><jmx_eb:Axes><jmx_eb:Axis>
+<jmx_eb:Direction description="全域" condition="全域" unit="８方位漢字" type="方向"/>
+<jmx_eb:Radius type="半径" unit="海里">100</jmx_eb:Radius>
+<jmx_eb:Radius type="半径" unit="km">185</jmx_eb:Radius>
+</jmx_eb:Axis></jmx_eb:Axes></jmx_eb:Circle>
+</WarningAreaPart></Property></Kind>
+</Item>
 </MeteorologicalInfo>
 <MeteorologicalInfo>
 <DateTime type="予報　４８時間後">2026-08-13T22:00:00+09:00</DateTime>
-<Item><Kind><Property><Type>中心</Type><CenterPart><ProbabilityCircle type="予報円">
+<Item><Kind><Property><Type>階級</Type><TyphoonClass>台風(TY)</TyphoonClass></Property></Kind><Kind><Property><Type>中心</Type><CenterPart><ProbabilityCircle type="予報円">
 <jmx_eb:BasePoint type="中心位置（度）">+37.0+142.0/</jmx_eb:BasePoint>
-<jmx_eb:Radius type="７０パーセント確率半径" unit="km">185</jmx_eb:Radius>
+<jmx_eb:Axes><jmx_eb:Axis><jmx_eb:Direction description="全域" condition="全域" unit="８方位漢字" type="方向"/><jmx_eb:Radius type="７０パーセント確率半径" unit="km">185</jmx_eb:Radius></jmx_eb:Axis></jmx_eb:Axes>
 </ProbabilityCircle></CenterPart></Property></Kind></Item>
 </MeteorologicalInfo>
 </MeteorologicalInfos>''',
@@ -1408,6 +1449,41 @@ JMA_TROPICAL_FORMATION_REPORT = JMA_TROPICAL_REPORT.replace(
     '<TyphoonNamePart><Name>CHAN-HOM</Name><Number>2615</Number></TyphoonNamePart>',
     '',
 ).replace('台風(TS)', '熱帯低気圧').replace('+35.9+139.9/', '+11.5+145.0/')
+
+JMA_TROPICAL_MINIMAL_REPORT = """\
+<?xml version="1.0" encoding="utf-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/">
+<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/">
+<Title>台風解析・予報情報</Title>
+<ReportDateTime>2026-08-11T22:45:00+09:00</ReportDateTime>
+<EventID>TC2617</EventID><InfoType>発表</InfoType><Serial>62</Serial>
+<Headline><Text>台風解析・予報情報</Text></Headline>
+</Head>
+<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/">
+<MeteorologicalInfos type="台風">
+<MeteorologicalInfo><DateTime type="実況">2026-08-11T22:00:00+09:00</DateTime><Item>
+<Kind><Property><Type>呼称</Type><TyphoonNamePart><Name>CHAN-HOM</Name><Number>2615</Number></TyphoonNamePart></Property></Kind>
+<Kind><Property><Type>階級</Type><TyphoonClass>台風(TS)</TyphoonClass></Property></Kind>
+<Kind><Property><Type>中心</Type><jmx_eb:Coordinate type="中心位置（度）">+35.9+139.9/</jmx_eb:Coordinate><Direction type="移動方向" unit="１６方位漢字">西</Direction><Speed type="移動速度" unit="km/h">20</Speed><Pressure type="中心気圧" unit="hPa">990</Pressure></Property></Kind>
+<Kind><Property><Type>風</Type><WindPart><WindSpeed type="最大風速" unit="m/s">23</WindSpeed></WindPart></Property></Kind>
+</Item></MeteorologicalInfo>
+</MeteorologicalInfos>
+</Body>
+</Report>
+"""
+
+JMA_TROPICAL_RESTRAINT_REPORT = JMA_TROPICAL_MINIMAL_REPORT.replace(
+    '</MeteorologicalInfos>',
+    '''<MeteorologicalInfo>
+<DateTime type="予報　翌日夕方">2026-08-12T18:00:00+09:00</DateTime><Item>
+<Kind><Property><Type>階級</Type><TyphoonClass>台風(TY)</TyphoonClass><AreaClass>大型</AreaClass><IntensityClass>非常に強い</IntensityClass></Property></Kind>
+<Kind><Property><Type>中心</Type><CenterPart><ProbabilityCircle type="予報円">
+<jmx_eb:BasePoint type="中心位置（度）">+36.5+141.0/</jmx_eb:BasePoint>
+<jmx_eb:Axes><jmx_eb:Axis><jmx_eb:Direction description="全域" condition="全域" unit="８方位漢字" type="方向"/><jmx_eb:Radius type="７０パーセント確率半径" unit="km"/></jmx_eb:Axis></jmx_eb:Axes>
+</ProbabilityCircle><Direction type="移動方向" unit="１６方位漢字">北東</Direction><Speed type="移動速度" condition="ゆっくり" unit="km/h"/></CenterPart></Property></Kind>
+</Item></MeteorologicalInfo>
+</MeteorologicalInfos>''',
+)
 
 BOM_TROPICAL_DIRECTORY = """\
 -rw-r--r--  1 bom  staff  1024 Nov 20  2025 IDD65401.gml
@@ -2188,27 +2264,243 @@ class ProviderBackendTests(unittest.TestCase):
             debug=False,
         )
         self.assertEqual([(product.kind, product.label) for product in products], [('forecast', 'Forecast')])
+        data = products[0].data
+        assert data is not None
+        self.assertEqual(set(data), {'analysis', 'points'})
+        analysis = data['analysis']
+        assert isinstance(analysis, dict)
         self.assertEqual(
-            products[0].data,
+            analysis,
             {
-                'points': [
+                'valid_at': '2026-08-11T22:00:00+09:00',
+                'classification': '台風(TS) / 強い',
+                'classification_details': {
+                    'typhoon_class': '台風(TS)',
+                    'intensity_class': '強い',
+                },
+                'location': '日本の南',
+                'maximum_gust': '35 m/s',
+                'source_values': {
+                    'maximum_wind': {
+                        'condition': '中心付近',
+                        'values': [{'value': '23', 'unit': 'm/s'}],
+                    },
+                },
+                'wind_areas': [
                     {
-                        'forecast_type': '予報　２４時間後',
-                        'latitude': 36.5,
-                        'longitude': 141.0,
-                        'lead_hours': 24,
-                        'valid_at': '2026-08-12T22:00:00+09:00',
+                        'type': '暴風域',
+                        'threshold': {
+                            'condition': '以上',
+                            'values': [
+                                {'value': '50', 'unit': 'ノット'},
+                                {'value': '25', 'unit': 'm/s'},
+                            ],
+                        },
+                        'axes': [
+                            {
+                                'direction': '全域',
+                                'radius_type': '半径',
+                                'radii': [
+                                    {'value': '45', 'unit': '海里'},
+                                    {'value': '85', 'unit': 'km'},
+                                ],
+                            }
+                        ],
                     },
                     {
-                        'forecast_type': '予報　４８時間後',
-                        'latitude': 37.0,
-                        'longitude': 142.0,
-                        'lead_hours': 48,
-                        'valid_at': '2026-08-13T22:00:00+09:00',
+                        'type': '強風域',
+                        'threshold': {
+                            'condition': '以上',
+                            'values': [{'value': '30', 'unit': 'ノット'}],
+                        },
+                        'axes': [
+                            {
+                                'direction': '北',
+                                'radius_type': '半径',
+                                'radii': [{'value': '220', 'unit': 'km'}],
+                            },
+                            {
+                                'direction': '南',
+                                'radius_type': '半径',
+                                'radii': [{'value': '165', 'unit': 'km'}],
+                            },
+                        ],
                     },
                 ],
             },
         )
+        points = data['points']
+        assert isinstance(points, list)
+        self.assertEqual(len(points), 2)
+        first = points[0]
+        self.assertEqual(
+            {key: first[key] for key in (
+                'latitude',
+                'longitude',
+                'lead_hours',
+                'valid_at',
+                'classification',
+                'location',
+                'movement',
+                'minimum_pressure',
+                'maximum_wind',
+                'maximum_gust',
+            )},
+            {
+                'latitude': 36.5,
+                'longitude': 141.0,
+                'lead_hours': 24,
+                'valid_at': '2026-08-12T22:00:00+09:00',
+                'classification': '台風(TY) / 非常に強い',
+                'location': '日本の東',
+                'movement': '北東 at 10 ノット',
+                'minimum_pressure': '970 hPa',
+                'maximum_wind': '80 ノット',
+                'maximum_gust': '115 ノット',
+            },
+        )
+        self.assertEqual(
+            first['classification_details'],
+            {
+                'typhoon_class': '台風(TY)',
+                'area_class': '大型',
+                'intensity_class': '非常に強い',
+            },
+        )
+        self.assertEqual(
+            first['source_values'],
+            {
+                'movement_speed': {
+                    'values': [
+                        {'value': '10', 'unit': 'ノット'},
+                        {'value': '20', 'unit': 'km/h'},
+                    ],
+                },
+                'maximum_wind': {
+                    'condition': '中心付近',
+                    'values': [
+                        {'value': '80', 'unit': 'ノット'},
+                        {'value': '40', 'unit': 'm/s'},
+                    ],
+                },
+                'maximum_gust': {
+                    'values': [
+                        {'value': '115', 'unit': 'ノット'},
+                        {'value': '60', 'unit': 'm/s'},
+                    ],
+                },
+            },
+        )
+        self.assertEqual(first['probability_circle']['type'], '予報円')
+        self.assertEqual(
+            first['probability_circle']['axes'][0]['radius_type'],
+            '７０パーセント確率半径',
+        )
+        self.assertEqual(
+            first['probability_circle']['axes'][0]['radii'],
+            [
+                {'value': '55', 'unit': '海里'},
+                {'value': '100', 'unit': 'km'},
+            ],
+        )
+        self.assertEqual([area['type'] for area in first['wind_areas']], ['暴風警戒域'])
+        self.assertEqual(
+            first['wind_areas'][0]['axes'][0]['radii'],
+            [
+                {'value': '100', 'unit': '海里'},
+                {'value': '185', 'unit': 'km'},
+            ],
+        )
+        second = points[1]
+        self.assertEqual(
+            set(second),
+            {
+                'latitude',
+                'longitude',
+                'lead_hours',
+                'valid_at',
+                'classification',
+                'classification_details',
+                'probability_circle',
+            },
+        )
+        self.assertEqual(second['classification'], '台風(TY)')
+        self.assertEqual(
+            second['probability_circle']['axes'][0]['radii'],
+            [{'value': '185', 'unit': 'km'}],
+        )
+        self.assertEqual(set(system.geometries), {'forecast_track'})
+
+    def test_jma_tropical_products_keep_explicit_labels_conditions_and_current_only_detail(
+        self,
+    ) -> None:
+        system = TropicalSystem(
+            id='TC2617',
+            source='jma_tropical',
+            classification='Typhoon',
+            name='CHAN-HOM',
+            headline='台風解析・予報情報',
+            url='https://www.data.jma.go.jp/developer/xml/data/current.xml',
+            parameters={'JMA Product Code': ['VPTW60']},
+        )
+
+        with patch(
+            'wevva_warnings.backends.jma_tropical.fetch_text',
+            return_value=JMA_TROPICAL_RESTRAINT_REPORT,
+        ):
+            products = get_tropical_products(system)
+
+        self.assertEqual([(product.kind, product.label) for product in products], [('forecast', 'Forecast')])
+        data = products[0].data
+        assert data is not None
+        self.assertNotIn('analysis', data)
+        points = data['points']
+        assert isinstance(points, list)
+        self.assertEqual(len(points), 1)
+        point = points[0]
+        self.assertNotIn('lead_hours', point)
+        self.assertEqual(point['forecast_label'], '予報　翌日夕方')
+        self.assertEqual(point['valid_at'], '2026-08-12T18:00:00+09:00')
+        self.assertEqual(point['movement'], '北東 at ゆっくり')
+        self.assertEqual(
+            point['source_values'],
+            {'movement_speed': {'condition': 'ゆっくり'}},
+        )
+        self.assertEqual(point['classification'], '台風(TY) / 非常に強い')
+        self.assertEqual(
+            point['classification_details'],
+            {
+                'typhoon_class': '台風(TY)',
+                'area_class': '大型',
+                'intensity_class': '非常に強い',
+            },
+        )
+        self.assertEqual(
+            point['probability_circle'],
+            {'type': '予報円'},
+        )
+        self.assertEqual(system.geometries, {})
+
+        with patch(
+            'wevva_warnings.backends.jma_tropical.fetch_text',
+            return_value=JMA_TROPICAL_REPORT,
+        ):
+            products = get_tropical_products(system)
+
+        self.assertEqual([(product.kind, product.label) for product in products], [('analysis', 'Analysis')])
+        data = products[0].data
+        assert data is not None
+        self.assertNotIn('points', data)
+        analysis = data['analysis']
+        assert isinstance(analysis, dict)
+        self.assertEqual(analysis['valid_at'], '2026-08-11T22:00:00+09:00')
+        self.assertEqual(products[0].issued_at.isoformat(), '2026-08-11T22:45:00+09:00')
+
+        with patch(
+            'wevva_warnings.backends.jma_tropical.fetch_text',
+            return_value=JMA_TROPICAL_MINIMAL_REPORT,
+        ):
+            self.assertEqual(get_tropical_products(system), [])
 
     def test_bom_tropical_backend_parses_track_and_warning_geometry(self) -> None:
         backend = BoMTropicalBackend()

@@ -6,7 +6,7 @@ from datetime import timedelta
 import unittest
 from unittest.mock import patch
 
-from wevva_warnings import get_tropical_products, get_tropical_systems_for_source
+from wevva_warnings import TropicalSystem, get_tropical_products, get_tropical_systems_for_source
 from wevva_warnings.backends.cma_tropical import CMATropicalBackend
 from wevva_warnings.registry import get_source
 
@@ -36,8 +36,124 @@ typhoon_jsons_view_103({"typhoon":[
 ]})
 """
 
+CMA_ALPHA_ANALYSIS_ONLY_DETAIL = CMA_ALPHA_DETAIL.replace(
+    '{"BABJ":[[12,"202608110600",119.5,20.5,970,38,"BABJ","TY"]]}',
+    '{}',
+)
+
+CMA_ALPHA_PARTIAL_DETAIL = CMA_ALPHA_DETAIL.replace(
+    '[["30KTS",250,200,150,200,1002],["50KTS",80,60,50,70,1002]]',
+    '[["30KTS",250,"bad",-1,null,1002],["invalid",80,60,50,70,1002],["64KTS",null,null,null,null,1002]]',
+).replace(
+    '[[12,"202608110600",119.5,20.5,970,38,"BABJ","TY"]]',
+    '[[null,"202608110600",119.5,20.5,970,38,"BABJ","TY"]]',
+)
+
+CMA_CEMPAKA_ACTIVE_LIST = """\
+typhoon_jsons_list_default(({"typhoonList":[
+  [3382203,"CEMPAKA","查帕卡","2632","2632",null,"以其芬芳的花闻名的植物","start"],
+  [3368875,"IN-FA","烟花","2631","2631",null,"烟花","stop"]
+]}))
+"""
+
+CMA_CEMPAKA_ACTIVE_DETAIL = """\
+typhoon_jsons_view_3382203({"typhoon":[
+  3382203,"CEMPAKA","查帕卡",2632,2632,null,"以其芬芳的花闻名的植物","start",
+  [[3382336,"202611070600",1794031200000,"TS",143.2,19.7,995,20,"WNW",27,
+    [["30KTS",200,150,150,250,3382336]],
+    {"BABJ":[
+      [12,"202611070600",140.4,20.9,980,30,"BABJ","STS"],
+      [24,"202611070600",137.5,21.8,970,35,"BABJ","TY"],
+      [36,"202611070600",135.1,22.7,955,42,"BABJ","STY"],
+      [48,"202611070600",134.4,23.4,935,52,"BABJ","SuperTY"],
+      [60,"202611070600",135.9,24.0,945,48,"BABJ","STY"],
+      [72,"202611070600",138.3,24.5,960,40,"BABJ","TY"],
+      [96,"202611070600",144.7,26.4,975,33,"BABJ","TY"],
+      [120,"202611070600",152.5,28.6,990,23,"BABJ","TS"]
+    ]}
+  ]]
+]})
+"""
+
 
 class CMATropicalTests(unittest.TestCase):
+    def test_active_cempaka_list_detail_and_explicit_babj_leads(self) -> None:
+        source = get_source('cma_tropical')
+        assert source is not None
+        backend = CMATropicalBackend()
+        detail_url = 'https://typhoon.nmc.cn/weatherservice/typhoon/jsons/view_3382203'
+        documents = {
+            source.url: CMA_CEMPAKA_ACTIVE_LIST,
+            detail_url: CMA_CEMPAKA_ACTIVE_DETAIL,
+        }
+
+        with patch(
+            'wevva_warnings.backends.cma_tropical.fetch_text',
+            side_effect=lambda url, **_: documents[url],
+        ) as fetch_text:
+            systems = backend.fetch_tropical_systems(source)
+
+        self.assertEqual([call.args[0] for call in fetch_text.call_args_list], [source.url, detail_url])
+        self.assertEqual(len(systems), 1)
+        system = systems[0]
+        self.assertEqual((system.id, system.name, system.classification), ('2632', 'CEMPAKA', 'Tropical Storm'))
+        self.assertEqual((system.center_lat, system.center_lon), (19.7, 143.2))
+        self.assertEqual(system.issued_at.isoformat(), '2026-11-07T06:00:00+08:00')
+        self.assertEqual(system.max_wind, '20 m/s')
+        self.assertEqual(system.min_pressure, '995 hPa')
+        self.assertEqual(system.movement, '27 km/h toward WNW')
+        self.assertEqual(
+            system.parameters['CMA Wind Radii'],
+            ['[["30KTS",200,150,150,250,3382336]]'],
+        )
+        self.assertEqual(set(system.geometries), {'forecast_track'})
+        forecast_coordinates = system.geometries['forecast_track']['coordinates']
+        self.assertEqual(len(forecast_coordinates), 9)
+        self.assertEqual(forecast_coordinates[0], [143.2, 19.7])
+        self.assertEqual(forecast_coordinates[-1], [152.5, 28.6])
+
+        with patch(
+            'wevva_warnings.backends.cma_tropical.fetch_text',
+            return_value=CMA_CEMPAKA_ACTIVE_DETAIL,
+        ):
+            products = get_tropical_products(system)
+
+        self.assertEqual([(product.kind, product.label) for product in products], [('forecast', 'Forecast')])
+        data = products[0].data
+        assert data is not None
+        self.assertEqual(
+            data['analysis'],
+            {
+                'valid_at': '2026-11-07T06:00:00+08:00',
+                'wind_radii': [
+                    {
+                        'threshold': {'value': 30, 'unit': 'KTS'},
+                        'radii': {
+                            'unit': 'km',
+                            'northeast': 200,
+                            'southeast': 150,
+                            'southwest': 150,
+                            'northwest': 250,
+                        },
+                    }
+                ],
+            },
+        )
+        points = data['points']
+        self.assertEqual(
+            [point['lead_hours'] for point in points],
+            [12, 24, 36, 48, 60, 72, 96, 120],
+        )
+        self.assertTrue(
+            all(
+                point['forecast_base_at'] == '2026-11-07T06:00:00+08:00'
+                for point in points
+            )
+        )
+        self.assertEqual(points[0]['valid_at'], '2026-11-07T18:00:00+08:00')
+        self.assertEqual(points[-1]['valid_at'], '2026-11-12T06:00:00+08:00')
+        self.assertEqual(set(system.geometries), {'forecast_track'})
+
     def test_backend_uses_only_current_systems_and_normalizes_latest_analysis(self) -> None:
         source = get_source('cma_tropical')
         assert source is not None
@@ -155,6 +271,31 @@ class CMATropicalTests(unittest.TestCase):
             products[0].data,
             {
                 'agency': 'BABJ',
+                'analysis': {
+                    'valid_at': '2026-08-11T06:00:00+08:00',
+                    'wind_radii': [
+                        {
+                            'threshold': {'value': 30, 'unit': 'KTS'},
+                            'radii': {
+                                'unit': 'km',
+                                'northeast': 250,
+                                'southeast': 200,
+                                'southwest': 150,
+                                'northwest': 200,
+                            },
+                        },
+                        {
+                            'threshold': {'value': 50, 'unit': 'KTS'},
+                            'radii': {
+                                'unit': 'km',
+                                'northeast': 80,
+                                'southeast': 60,
+                                'southwest': 50,
+                                'northwest': 70,
+                            },
+                        },
+                    ],
+                },
                 'points': [
                     {
                         'latitude': 20.5,
@@ -170,6 +311,73 @@ class CMATropicalTests(unittest.TestCase):
                 ],
             },
         )
+        self.assertEqual(set(system.geometries), {'observed_track', 'forecast_track'})
+
+    def test_product_query_handles_analysis_only_and_partial_structured_values(self) -> None:
+        source = get_source('cma_tropical')
+        assert source is not None
+        detail_url = 'https://typhoon.nmc.cn/weatherservice/typhoon/jsons/view_101'
+        documents = {
+            source.url: CMA_LIST,
+            detail_url: CMA_ALPHA_DETAIL,
+            'https://typhoon.nmc.cn/weatherservice/typhoon/jsons/view_103': CMA_DEPRESSION_DETAIL,
+        }
+        with patch(
+            'wevva_warnings.backends.cma_tropical.fetch_text',
+            side_effect=lambda url, **_: documents[url],
+        ):
+            system = get_tropical_systems_for_source('cma_tropical')[0]
+
+        with patch(
+            'wevva_warnings.backends.cma_tropical.fetch_text',
+            return_value=CMA_ALPHA_ANALYSIS_ONLY_DETAIL,
+        ):
+            products = get_tropical_products(system)
+
+        self.assertEqual([(product.kind, product.label) for product in products], [('analysis', 'Analysis')])
+        data = products[0].data
+        assert data is not None
+        self.assertEqual(set(data), {'analysis'})
+        self.assertEqual(data['analysis']['valid_at'], '2026-08-11T06:00:00+08:00')
+        self.assertEqual(len(data['analysis']['wind_radii']), 2)
+
+        with patch(
+            'wevva_warnings.backends.cma_tropical.fetch_text',
+            return_value=CMA_ALPHA_PARTIAL_DETAIL,
+        ):
+            products = get_tropical_products(system)
+
+        self.assertEqual([(product.kind, product.label) for product in products], [('forecast', 'Forecast')])
+        data = products[0].data
+        assert data is not None
+        self.assertEqual(
+            data['analysis']['wind_radii'],
+            [
+                {
+                    'threshold': {'value': 30, 'unit': 'KTS'},
+                    'radii': {'unit': 'km', 'northeast': 250},
+                }
+            ],
+        )
+        point = data['points'][0]
+        self.assertEqual(point['forecast_base_at'], '2026-08-11T06:00:00+08:00')
+        self.assertNotIn('lead_hours', point)
+        self.assertNotIn('valid_at', point)
+        self.assertEqual(set(system.geometries), {'observed_track', 'forecast_track'})
+
+        depression = TropicalSystem(
+            id='20260003',
+            source='cma_tropical',
+            classification='Tropical Depression',
+            name='热带低压',
+            headline='Tropical Depression: 热带低压',
+            data_urls={'cma_tropical_cyclone_detail': detail_url},
+        )
+        with patch(
+            'wevva_warnings.backends.cma_tropical.fetch_text',
+            return_value=CMA_DEPRESSION_DETAIL,
+        ):
+            self.assertEqual(get_tropical_products(depression), [])
 
 
 if __name__ == '__main__':

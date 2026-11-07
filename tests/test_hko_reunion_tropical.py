@@ -78,20 +78,42 @@ HKO_TRACK = """\
       <Longitude>123.7E</Longitude>
     </ForecastInformation>
     <ForecastInformation>
+      <Index>not-a-number</Index>
+      <Time>2026-08-12T00:00:00+00:00</Time>
+      <Latitude>17.8N</Latitude>
+      <Longitude>123.8E</Longitude>
+    </ForecastInformation>
+    <ForecastInformation>
+      <Index>12</Index>
+      <Latitude>17.9N</Latitude>
+      <Longitude>123.9E</Longitude>
+    </ForecastInformation>
+    <ForecastInformation>
+      <Time>2026-08-12T06:00:00+00:00</Time>
+      <Latitude>17.95N</Latitude>
+      <Longitude>123.95E</Longitude>
+    </ForecastInformation>
+    <ForecastInformation>
       <Index>24</Index>
       <Time>2026-08-12T12:00:00+00:00</Time>
+      <Intensity>Typhoon</Intensity>
+      <MaximumWind>120km/h</MaximumWind>
       <Latitude>18.0N</Latitude>
       <Longitude>124.0E</Longitude>
     </ForecastInformation>
     <ForecastInformation>
       <Index>48</Index>
       <Time>2026-08-13T12:00:00+00:00</Time>
+      <Intensity>Typhoon</Intensity>
+      <MaximumWind>145km/h</MaximumWind>
       <Latitude>19.0N</Latitude>
       <Longitude>126.0E</Longitude>
     </ForecastInformation>
     <ForecastInformation>
       <Index>72</Index>
       <Time>2026-08-14T12:00:00+00:00</Time>
+      <Intensity>Severe Tropical Storm</Intensity>
+      <MaximumWind>110km/h</MaximumWind>
       <Latitude>20.0N</Latitude>
       <Longitude>128.0E</Longitude>
     </ForecastInformation>
@@ -226,6 +248,8 @@ class HKOTropicalTests(unittest.TestCase):
             ],
         )
         self.assertEqual(set(system.geometries), {'observed_track', 'forecast_track'})
+        self.assertNotIn('potential_track_area', system.geometries)
+        self.assertNotIn('cone', system.geometries)
         self.assertEqual(
             fetch_text.call_args.args[0],
             'https://www.weather.gov.hk/wxinfo/currwx/hko_tctrack_2601.xml',
@@ -244,18 +268,24 @@ class HKOTropicalTests(unittest.TestCase):
                         'longitude': 124.0,
                         'lead_hours': 24,
                         'valid_at': '2026-08-12T12:00:00+00:00',
+                        'intensity': 'Typhoon',
+                        'maximum_wind': '120km/h',
                     },
                     {
                         'latitude': 19.0,
                         'longitude': 126.0,
                         'lead_hours': 48,
                         'valid_at': '2026-08-13T12:00:00+00:00',
+                        'intensity': 'Typhoon',
+                        'maximum_wind': '145km/h',
                     },
                     {
                         'latitude': 20.0,
                         'longitude': 128.0,
                         'lead_hours': 72,
                         'valid_at': '2026-08-14T12:00:00+00:00',
+                        'intensity': 'Severe Tropical Storm',
+                        'maximum_wind': '110km/h',
                     },
                     {
                         'latitude': 21.0,
@@ -272,6 +302,8 @@ class HKOTropicalTests(unittest.TestCase):
                 ]
             },
         )
+        self.assertNotIn('potential_track_area', products[0].data)
+        self.assertNotIn('cone', products[0].data)
 
 
 class MeteoFranceReunionTropicalTests(unittest.TestCase):

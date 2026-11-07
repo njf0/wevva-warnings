@@ -205,6 +205,17 @@ additional live validation:
 - PAGASA's one authoritative bulletin remains one product instead of being
   split into artificial tabs.
 
+On 2026-11-08, the structured PAGASA track candidate was closed as a no-go for
+the current release boundary. The official severe-wind application's bundled
+JavaScript retains a `POST /api/track_points/<typhoon-id>` path, but its live
+inactive page supplies no addressable typhoon ID. A 2026-07-08 public capture
+of the official page during Tropical Depression IN-DAY served the active SWIBF
+as a PDF iframe rather than exposing a structured identifier or response;
+later captures and the current page showed the explicit inactive state. The
+required two structured updates and structured ended transition therefore
+remain unverified. No IDs were guessed and no PDF was parsed. The existing
+current-bulletin adapter remains unchanged, with no track or inferred geometry.
+
 Still outstanding are live-event validation of those shapes and layouts, the
 NHC wind-field decision from task 0005, the two deferred Southwest Pacific
 sources above, and the BMKG implementation in task 0014. Cross-repository map

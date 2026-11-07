@@ -151,12 +151,36 @@ Converting an official KML, GML, or GeoJSON geometry into the public GeoJSON
 shape is normalization, not an inferred meteorological area.
 
 The CMA adapter retains its ordered analysed positions as `observed_track` and
-the latest BABJ forecast centres as `forecast_track`. The JMA adapter builds
+the latest BABJ forecast centres as `forecast_track`. Its lazy structured
+product adds the current analysis time and thresholded northeast, southeast,
+southwest, and northwest wind radii in kilometres. CMA's official map client
+defines that positional order and unit; the original compact array remains in
+`TropicalSystem.parameters`. Reports with BABJ fixes remain Forecast products,
+while useful radii without forecast fixes may form an Analysis product. The
+forecast point contract is unchanged, and neither symmetric nor asymmetric
+radii create wind-area geometry. This CMA shape is provider-specific rather
+than an extension of JMA's `source_values` convention. The JMA adapter builds
 `forecast_track` only from forecast centres in the same latest VPTW report; it
-does not join superseded advisories after a forecast has ended. HKO uses only
+does not join superseded advisories after a forecast has ended. Its lazy
+Forecast product exposes displayable forecast classification, location,
+movement, pressure, maximum wind and gust values alongside explicit centres,
+valid times, and forecast-type lead hours. The optional `analysis` block keeps
+its distinct validity time but contains only additive current facts not already
+adequately represented by `TropicalSystem`; a current-only report produces an
+Analysis product only when such facts exist. JMA-specific `source_values` are
+limited to alternate official units, explicit conditions, or semantically
+distinct provider values. An explicit forecast label that does not yield an
+hour remains `forecast_label`; its time and position do not manufacture a
+lead. Probability-circle and wind or storm-warning area thresholds, axes, and
+radii retain provider-published terminology and units as structured facts;
+none creates an area geometry layer. This shape is provider-specific guidance,
+not a schema imposed on other tropical adapters. HKO uses only
 `ForecastInformation` blocks carrying both a time and numeric forecast-hour
 index for `forecast_track` and structured forecast products; its untimed smooth
-curve vertices are not exposed as forecast fixes.
+curve vertices are not exposed as forecast fixes. HKO's separately published
+CSDI GML likewise contains point features rather than the 70% Potential Track
+Area shown by its public map. The map's documented forecast-error radius table
+is not copied into the adapter, and neither source is used to construct an area.
 Structured forecast points expose `lead_hours` only from provider-owned horizon
 fields: CMA's BABJ lead value, JMA's forecast-type hour, HKO's numeric `Index`,
 Météo-France La Réunion's forecast `hour`, and NHC/CPHC's point placemark
@@ -206,12 +230,28 @@ prose. The useful top-level GIS feed description remains on
 product.
 
 PAGASA exposes its current authoritative Tropical Cyclone Bulletin as one
-line-preserving Markdown product rather than artificial section tabs. JMA, CMA/NMC, HKO,
+line-preserving Markdown product rather than artificial section tabs. Its
+severe-wind application's JavaScript contains a typhoon-ID track request, but
+the current inactive page and a captured active SWIBF page do not establish a
+discoverable identifier and stable structured lifecycle; the active page
+served a PDF product instead. The library therefore does not guess IDs, parse
+that PDF, or claim a PAGASA track or cone. JMA, CMA/NMC, HKO,
 and Météo-France La Réunion expose structured forecast or analysis details
 from their already integrated official documents. BoM currently returns no
 supplementary products: its integrated GML already supplies the common
 forecast layers, and no speculative GML-to-separate-text-product correlation
 is performed.
+
+IMD's documented cyclone track, wind-warning, and cone APIs are not built-in
+sources because anonymous requests require authentication and the project does
+not require API registration or a shared key. WMO SWIC's anonymous tropical
+JSON remains an evaluated candidate rather than a registered source. It
+retains separate issuing-centre records and explicitly requires attribution to
+the contributing RSMC, TCWC, or NMHS, but an RSMC New Delhi record, stable
+identity across successive updates, and an observed quiet-state payload have
+not yet been captured. Its compact radius strings would remain facts rather
+than geometry, and its `same` links would not authorize merging observations
+from different centres or replacing direct provider adapters.
 
 Tracks, probability areas, cones, wind fields, and watches or warnings are
 distinct provider concepts. Backends retain provider-supplied named layers
