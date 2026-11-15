@@ -48,14 +48,19 @@ class BoMTropicalBackend(WarningBackend):
         lon: float | None = None,
         lang: str | None = None,
         debug: bool = False,
+        strict: bool = False,
     ) -> list[TropicalSystem]:
         """Fetch the currently published BoM tropical-track GML products."""
         del lat, lon, lang
         if not source.url:
+            if strict:
+                raise BackendError(f'Missing tropical source URL: {source.id}')
             return []
         try:
             listing = fetch_text(source.url, debug=debug)
         except BackendError:
+            if strict:
+                raise
             return []
 
         systems: dict[str, TropicalSystem] = {}
@@ -63,9 +68,13 @@ class BoMTropicalBackend(WarningBackend):
             try:
                 payload = fetch_text(product_url, headers={'Accept': 'application/gml+xml, application/xml'}, debug=debug)
             except BackendError:
+                if strict:
+                    raise
                 continue
             system = _parse_bom_product(payload, source=source.id, url=product_url)
             if system is None:
+                if strict:
+                    raise BackendError(f'Invalid BoM tropical product: {product_url}')
                 continue
             previous = systems.get(system.id)
             if previous is None or _prefer_system(system, previous):

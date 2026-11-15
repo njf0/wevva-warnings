@@ -505,6 +505,7 @@ def get_tropical_systems(
     *,
     source_ids: list[str] | None = None,
     debug: bool = False,
+    strict: bool = False,
 ) -> list[TropicalSystem]:
     """Return raw current reports from selected tropical-system sources.
 
@@ -514,6 +515,11 @@ def get_tropical_systems(
     :func:`match_tropical_systems_to_point` for each location. ``source_ids``
     restricts the fetch to known tropical-system source IDs, while ``None``
     selects every registered tropical-system source.
+
+    With ``strict=True``, required discovery requests must succeed for every
+    selected provider. A provider failure raises ``BackendError`` rather than
+    returning an empty or partial discovery result. Optional geometry and lazy
+    products remain best effort. The default retains the historical behaviour.
     """
     sources = _tropical_sources_for_query(source_ids)
     source_backends = _source_backends(sources)
@@ -522,7 +528,7 @@ def get_tropical_systems(
 
     return [
         system
-        for _source, system in _fetch_tropical_systems(source_backends, debug=debug)
+        for _source, system in _fetch_tropical_systems(source_backends, debug=debug, strict=strict)
     ]
 
 
@@ -530,6 +536,7 @@ def get_canonical_tropical_systems(
     *,
     source_ids: list[str] | None = None,
     debug: bool = False,
+    strict: bool = False,
 ) -> list[CanonicalTropicalSystem]:
     """Return current tropical reports grouped by explicit storm name.
 
@@ -537,9 +544,13 @@ def get_canonical_tropical_systems(
     retained unchanged.  Names are matched only after trimming surrounding
     whitespace and applying case-insensitive comparison; observations without
     a non-empty name remain singleton groups.
+
+    ``strict=True`` requires complete discovery, as in
+    :func:`get_tropical_systems`; an empty result then means that the selected
+    providers returned no current systems, rather than failing to fetch them.
     """
     return group_tropical_systems(
-        get_tropical_systems(source_ids=source_ids, debug=debug)
+        get_tropical_systems(source_ids=source_ids, debug=debug, **({'strict': True} if strict else {}))
     )
 
 
@@ -762,6 +773,7 @@ def _fetch_tropical_systems(
     *,
     debug: bool,
     emit_source_progress: bool = False,
+    strict: bool = False,
 ) -> list[tuple[WarningSource, TropicalSystem]]:
     """Fetch raw tropical reports for source/backend pairs without a point."""
     fetched_systems: list[tuple[WarningSource, TropicalSystem]] = []
@@ -774,7 +786,9 @@ def _fetch_tropical_systems(
         # Tropical proximity progress deliberately owns this callback lifecycle.
         # Provider adapters must not leak ordinary alert progress events into it.
         with bind_progress_callback(None):
-            systems = backend.fetch_tropical_systems(source, debug=debug)
+            systems = backend.fetch_tropical_systems(
+                source, debug=debug, **({'strict': True} if strict else {})
+            )
         _attach_tropical_source_info(systems, source)
         fetched_systems.extend((source, system) for system in systems)
 

@@ -120,6 +120,15 @@ Group order and observation order follow the raw input. Empty names remain
 singleton groups. No location, basin, cyclone number, classification, track,
 or other meteorological value participates in identity matching.
 
+Both discovery queries accept opt-in `strict=True`. The query forwards strict
+mode to each selected tropical backend: required listings, feed decoding, and
+per-system discovery requests propagate `BackendError` instead of being hidden
+as empty/partial results. Optional NHC geometry/advisory enrichment and lazy
+products retain their existing best-effort behaviour. Default queries and
+point/proximity progress contracts are unchanged. An application can use a
+successful strict empty result to collapse an empty panel and retain its last
+result when strict discovery fails; this is limited to registered-source coverage.
+
 A tropical source can declaratively provide basin-specific and source-wide
 display-geography hints. `TropicalSystem.display_geography` resolves an exact
 trimmed, case-insensitive basin match first, then the source-wide hint, then an

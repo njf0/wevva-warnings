@@ -48,10 +48,11 @@ class HKOBackend(WarningBackend):
         lon: float | None = None,
         lang: str | None = None,
         debug: bool = False,
+        strict: bool = False,
     ) -> list[TropicalSystem]:
         """Fetch current systems from HKO's documented tropical-track XML."""
         del lat, lon, lang
-        root = fetch_feed_root(source, debug=debug)
+        root = fetch_feed_root(source, debug=debug, **({'strict': True} if strict else {}))
         if root is None or not source.url:
             return []
 
@@ -68,6 +69,8 @@ class HKOBackend(WarningBackend):
             try:
                 payload = fetch_text(track_url, headers={'Accept': 'application/xml, text/xml'}, debug=debug)
             except BackendError:
+                if strict:
+                    raise
                 continue
             system = _parse_hko_tropical_track(
                 payload,
@@ -77,6 +80,8 @@ class HKOBackend(WarningBackend):
                 chinese_name=chinese_name,
                 url=track_url,
             )
+            if strict and system is None:
+                raise BackendError(f'Invalid HKO current-system track: {system_id}')
             if system is not None:
                 systems.append(system)
 

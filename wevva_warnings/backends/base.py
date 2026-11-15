@@ -150,12 +150,15 @@ class WarningBackend(ABC):
         lon: float | None = None,
         lang: str | None = None,
         debug: bool = False,
+        strict: bool = False,
     ) -> list[TropicalSystem]:
         """Return tropical systems for a source.
 
         Backends that do not publish storm-centric tropical system products can
         keep the default empty implementation.
         """
+        if strict:
+            raise BackendError(f'Tropical discovery is not implemented for {source.id}')
         del source, lat, lon, lang, debug
         return []
 

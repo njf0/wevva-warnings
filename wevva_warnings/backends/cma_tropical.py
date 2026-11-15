@@ -54,10 +54,13 @@ class CMATropicalBackend(WarningBackend):
         lon: float | None = None,
         lang: str | None = None,
         debug: bool = False,
+        strict: bool = False,
     ) -> list[TropicalSystem]:
         """Fetch systems marked current by the NMC Typhoon Network."""
         del lat, lon, lang
         if not source.url:
+            if strict:
+                raise BackendError(f'Missing tropical source URL: {source.id}')
             return []
 
         try:
@@ -67,7 +70,14 @@ class CMATropicalBackend(WarningBackend):
                 debug=debug,
             )
         except BackendError:
+            if strict:
+                raise
             return []
+
+        if strict:
+            data = _decode_jsonp_object(listing)
+            if data is None or not isinstance(data.get('typhoonList'), list):
+                raise BackendError('Invalid CMA current-system list')
 
         systems: dict[str, TropicalSystem] = {}
         for internal_id in _current_system_ids(listing):
@@ -79,6 +89,8 @@ class CMATropicalBackend(WarningBackend):
                     debug=debug,
                 )
             except BackendError:
+                if strict:
+                    raise
                 continue
 
             system = _parse_cma_tropical_detail(
@@ -88,6 +100,8 @@ class CMATropicalBackend(WarningBackend):
                 detail_url=detail_url,
             )
             if system is None:
+                if strict:
+                    raise BackendError(f'Invalid CMA current-system detail: {internal_id}')
                 continue
             previous = systems.get(system.id)
             if previous is None or _is_newer(system, previous):

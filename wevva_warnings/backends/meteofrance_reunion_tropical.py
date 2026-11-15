@@ -47,12 +47,17 @@ class MeteoFranceReunionTropicalBackend(WarningBackend):
         lon: float | None = None,
         lang: str | None = None,
         debug: bool = False,
+        strict: bool = False,
     ) -> list[TropicalSystem]:
         """Fetch the current seasonal cyclone list and its trajectories."""
         del lat, lon, lang
         try:
-            payloads = _fetch_current_reunion_payloads(season=_current_season(), debug=debug)
+            payloads = _fetch_current_reunion_payloads(
+                season=_current_season(), debug=debug, **({'strict': True} if strict else {})
+            )
         except BackendError:
+            if strict:
+                raise
             return []
 
         systems = [
@@ -60,6 +65,8 @@ class MeteoFranceReunionTropicalBackend(WarningBackend):
             for listing, trajectory in payloads
             if (system := _parse_reunion_system(listing, trajectory, source=source.id, url=source.url)) is not None
         ]
+        if strict and len(systems) != len(payloads):
+            raise BackendError('Invalid Météo-France current-system trajectory')
         return sorted(systems, key=lambda system: (system.name.casefold(), system.id))
 
     def fetch_tropical_products(
@@ -114,7 +121,7 @@ def _current_season(now: datetime | None = None) -> str:
     return f'{current.year}{current.year + 1}'
 
 
-def _fetch_current_reunion_payloads(*, season: str, debug: bool) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+def _fetch_current_reunion_payloads(*, season: str, debug: bool, strict: bool = False) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     """Return current cyclone-list rows paired with their trajectory documents."""
     cookies = CookieJar()
     opener = build_opener(HTTPCookieProcessor(cookies))
@@ -145,6 +152,8 @@ def _fetch_current_reunion_payloads(*, season: str, debug: bool) -> list[tuple[d
                 debug=debug,
             )
         except BackendError:
+            if strict:
+                raise
             continue
         payloads.append((entry, trajectory))
     return payloads

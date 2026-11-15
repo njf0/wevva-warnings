@@ -41,10 +41,11 @@ class JMATropicalBackend(WarningBackend):
         lon: float | None = None,
         lang: str | None = None,
         debug: bool = False,
+        strict: bool = False,
     ) -> list[TropicalSystem]:
         """Fetch current tropical systems from JMA's public XML update feed."""
         del lat, lon, lang
-        root = fetch_feed_root(source, debug=debug)
+        root = fetch_feed_root(source, debug=debug, **({'strict': True} if strict else {}))
         if root is None or not source.url:
             return []
 
@@ -53,7 +54,14 @@ class JMATropicalBackend(WarningBackend):
             try:
                 payload = fetch_text(document_url, headers={'Accept': 'application/xml, text/xml'}, debug=debug)
             except BackendError:
+                if strict:
+                    raise
                 continue
+            if strict:
+                try:
+                    ElementTree.fromstring(payload)
+                except ElementTree.ParseError as error:
+                    raise BackendError(f'Invalid JMA tropical XML: {document_url}') from error
             system = _parse_jma_tropical_report(
                 payload,
                 source=source.id,

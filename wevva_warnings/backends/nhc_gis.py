@@ -75,10 +75,11 @@ class NHCGISBackend(WarningBackend):
         lon: float | None = None,
         lang: str | None = None,
         debug: bool = False,
+        strict: bool = False,
     ) -> list[TropicalSystem]:
         """Fetch tropical systems for an NHC/CPHC GIS source."""
         del lat, lon, lang
-        root = fetch_feed_root(source, debug=debug)
+        root = fetch_feed_root(source, debug=debug, **({'strict': True} if strict else {}))
         if root is None or not source.url:
             return []
 

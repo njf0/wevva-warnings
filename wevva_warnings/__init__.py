@@ -2,6 +2,7 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
+from .backends.base import BackendError
 from .geocoding import geometry_from_geocodes, resolve_alert_geometry
 from .models import Alert, CanonicalTropicalSystem, TropicalProduct, TropicalSystem
 from .progress import WarningQueryProgress
@@ -33,6 +34,7 @@ except PackageNotFoundError:
 
 __all__ = [
     'Alert',
+    'BackendError',
     'CanonicalTropicalSystem',
     'DisplayGeography',
     'LanguageNotSupportedError',

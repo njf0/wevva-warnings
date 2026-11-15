@@ -72,8 +72,8 @@ The main entry point is:
 Other useful features:
 
 - `get_swic_extreme_alerts(active_only=True, include_marine=False, debug=False)`
-- `get_tropical_systems(source_ids=None, debug=False)` and `match_tropical_systems_to_point(systems, lat=..., lon=..., radius_km=1000.0)` for cache-friendly tropical fetching and local proximity matching
-- `get_canonical_tropical_systems(source_ids=None, debug=False)` groups current observations only when their non-empty names match after trimming and case-insensitive comparison; `group_tropical_systems(systems)` applies the same local grouping to already-fetched reports
+- `get_tropical_systems(source_ids=None, debug=False, strict=False)` and `match_tropical_systems_to_point(systems, lat=..., lon=..., radius_km=1000.0)` for cache-friendly tropical fetching and local proximity matching
+- `get_canonical_tropical_systems(source_ids=None, debug=False, strict=False)` groups current observations only when their non-empty names match after trimming and case-insensitive comparison; `group_tropical_systems(systems)` applies the same local grouping to already-fetched reports
 - `get_tropical_products(system, debug=False)` lazily retrieves optional source-specific detail only after a caller selects one `TropicalSystem`; ordinary discovery never performs these follow-up requests
 - `get_tropical_systems_near(lat, lon, radius_km=1000.0, source_ids=None, debug=False, progress=None)`
 - cache-safe reusable/native alert queries with `get_reusable_alerts_for_country()`, `get_native_alerts_for_point()`, `match_alerts_to_point()`, and `deduplicate_alerts()`
@@ -94,6 +94,14 @@ Notes:
 - tropical systems retain source-specific tracks, cones, wind fields and warning layers only when the official structured product supplies those coordinates. Explicit ordered analysed or forecast positions may form a track, but the library does not buffer points, project radii, join probability circles, geocode prose, or otherwise manufacture area geometry. Scalar radii, axes, distances and provider-stated probabilities remain source facts in `parameters` or lazy structured products
 - CMA supplies analysed and BABJ forecast tracks, JMA supplies forecast-centre tracks when the latest VPTW report contains them, and HKO forecast tracks contain only timed/indexed fixes rather than untimed display-curve vertices. A track, probability area, cone, wind field, watch, or warning keeps its provider meaning and is not automatically a local official warning
 - supplementary `TropicalProduct` objects keep a small semantic `kind`, the provider's natural `label`, Markdown-formatted text by default, and optional provider-specific structured `data`; providers may retain `plain` for layouts that render poorly as Markdown. Product sets intentionally vary by provider and may be empty
+
+For an activity-driven interface, use `get_canonical_tropical_systems(strict=True)`
+(or `get_tropical_systems(strict=True)`). Required discovery requests then raise
+the public `BackendError` on provider failure instead of silently returning empty or partial
+results. A successful empty result means the selected sources returned no current
+systems, not that every basin worldwide is guaranteed quiet. Retain the previous
+result if the call raises. Optional geometry and lazy products remain best effort;
+the default `strict=False` preserves existing query behaviour.
 
 After selecting a source observation, retrieve richer detail explicitly:
 

@@ -21,6 +21,7 @@ def fetch_feed_root(
     *,
     debug: bool = False,
     headers: dict[str, str] | None = None,
+    strict: bool = False,
 ) -> ElementTree.Element | None:
     """Fetch and parse one feed XML document.
 
@@ -32,6 +33,9 @@ def fetch_feed_root(
         If True, log fetch failures via the shared HTTP helper.
     headers : dict[str, str] | None, optional
         Additional request headers.
+    strict : bool, optional
+        Raise ``BackendError`` for missing URLs, failed requests, or invalid
+        XML instead of returning ``None``. Defaults to False.
 
     Returns
     -------
@@ -41,16 +45,22 @@ def fetch_feed_root(
 
     """
     if not source.url:
+        if strict:
+            raise BackendError(f'Missing feed URL: {source.id}')
         return None
 
     try:
         payload = fetch_text(source.url, headers=headers or {'Accept': FEED_ACCEPT}, debug=debug)
     except BackendError:
+        if strict:
+            raise
         return None
 
     try:
         return ElementTree.fromstring(payload)
-    except ElementTree.ParseError:
+    except ElementTree.ParseError as error:
+        if strict:
+            raise BackendError(f'Invalid feed XML: {source.id}') from error
         return None
 
 

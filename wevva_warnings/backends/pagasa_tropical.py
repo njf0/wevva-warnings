@@ -70,6 +70,7 @@ class PAGASATropicalBackend(WarningBackend):
         lon: float | None = None,
         lang: str | None = None,
         debug: bool = False,
+        strict: bool = False,
     ) -> list[TropicalSystem]:
         """Fetch the current PAGASA tropical-cyclone bulletin.
 
@@ -80,13 +81,19 @@ class PAGASATropicalBackend(WarningBackend):
         """
         del lat, lon, lang
         if not source.url:
+            if strict:
+                raise BackendError(f'Missing tropical source URL: {source.id}')
             return []
         try:
             payload = fetch_text(source.url, headers={'Accept': 'text/html'}, debug=debug)
         except BackendError:
+            if strict:
+                raise
             return []
 
         system = _parse_pagasa_tropical_bulletin(payload, source=source.id, url=source.url)
+        if strict and system is None and not _NO_ACTIVE_RE.search(_page_text(payload)):
+            raise BackendError('PAGASA did not supply a current bulletin or an inactive notice')
         return [system] if system is not None else []
 
     def fetch_tropical_products(
